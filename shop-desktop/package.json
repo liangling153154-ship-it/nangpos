@@ -1,0 +1,63 @@
+{
+  "name": "nang-cafe-desktop",
+  "version": "1.0.0",
+  "author": "Nang Cafe Cao Bang",
+  "private": true,
+  "description": "Nâng Café — App Windows trực nhận đơn ship, tự phát loa 10 giây và tự in phiếu nhiệt không cần hỏi",
+  "main": "dist/shop-desktop/src/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "npm run build && electron .",
+    "dist:win": "npm run build && electron-builder --win --x64",
+    "dist:portable": "npm run build && electron-builder --win portable --x64"
+  },
+  "dependencies": {
+    "ws": "^8.18.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "@types/ws": "^8.18.0",
+    "electron": "^35.1.5",
+    "electron-builder": "^26.0.12",
+    "typescript": "^5.8.2"
+  },
+  "build": {
+    "appId": "vn.nangcafe.counter",
+    "productName": "Nang Cafe - Quay Nhan Don",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "renderer/**/*",
+      "assets/**/*",
+      "build/icon.png",
+      "build/icon.ico",
+      "package.json"
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Nang Cafe - Quay Nhan Don"
+    },
+    "portable": {
+      "artifactName": "NangCafe-QuayNhanDon-Portable.exe"
+    }
+  }
+}

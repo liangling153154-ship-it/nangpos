@@ -14,7 +14,8 @@ Hệ thống đặt ship đồ uống hoàn chỉnh dành riêng cho **Nâng Caf
 ├── shared/          # Kiểu dữ liệu dùng chung (TypeScript)
 ├── server/          # Express + WebSocket + PostgreSQL + VietQR + ntfy + SePay stub
 ├── client/          # React + Vite Mobile-First PWA (/) & Trang quản lý (/admin)
-├── shop-agent/      # Ứng dụng chạy trên máy tính Windows ở quán (in nhiệt + loa)
+├── shop-desktop/    # App Electron Windows cho laptop quán (gộp /admin + loa 10s + in luôn không hỏi + System Tray)
+├── shop-agent/      # Bản chạy dòng lệnh gọn nhẹ (nếu chỉ muốn chạy nền không cần giao diện)
 ├── tests/           # Kịch bản test tự động toàn bộ luồng (e2e-flow.mjs)
 ├── railway.json     # Cấu hình build/deploy Railway
 └── .env.example     # Mẫu biến môi trường (không chứa thông tin nhạy cảm)
@@ -68,7 +69,35 @@ Tạo một repository **Private** trên GitHub và push toàn bộ thư mục d
 
 ---
 
-## 3. Hướng dẫn cài đặt trên Máy tính ở quán (Windows)
+## 3. Cài đặt trên Laptop Windows ở quán
+
+Có 2 lựa chọn — **khuyên dùng Cách A (App Electron có giao diện + System Tray + đóng gói `.exe`)**:
+
+### Cách A (Khuyên dùng): App Windows Electron — **Nâng Café Quầy Nhận Đơn (`shop-desktop/`)**
+- **Tính năng nổi bật:**
+  - Gộp sẵn trang quản lý `/admin` + bộ nhận đơn WebSocket ngầm trong **1 app duy nhất**.
+  - Có đơn mới: **tự phát chuông + đọc tiếng Việt `"Đơn mới"` liên tục 10 giây** *(có nút **Tắt chuông** ngay nếu nhân viên đã nghe)* và **tự in phiếu nhiệt ngay không hiện hộp thoại hỏi**.
+  - Bấm nút đóng (`X`) sẽ **thu gọn xuống khay hệ thống (System Tray)** để nhân viên không lỡ tay tắt nhận đơn; tự giữ laptop không ngủ (`powerSaveBlocker`).
+  - Mất Wi-Fi → có mạng lại **tự in bù các đơn chưa in, chống in trùng tuyệt đối**.
+  - Chọn máy in nhiệt trực tiếp từ danh sách máy in Windows trong mục **Cài đặt** + nút gạt **Tự chạy cùng Windows**.
+- **Chạy trực tiếp (dev):**
+  ```powershell
+  npm.cmd install --prefix shop-desktop
+  node shop-desktop/node_modules/electron/install.js
+  npm.cmd run dev:desktop
+  ```
+- **Xuất file `.exe` mang sang laptop quán (laptop quán không cần cài Node.js):**
+  ```powershell
+  # Xuất file chạy ngay Portable (.exe) tại shop-desktop\release\NangCafe-QuayNhanDon-Portable.exe
+  npm.cmd run dist:desktop
+
+  # Hoặc xuất cả bộ cài đặt Setup Installer (.exe) + Portable:
+  npm.cmd run dist:win --prefix shop-desktop
+  ```
+- **Cấu hình lần đầu trên laptop quán:** Mở app → điền **Đường dẫn Server Railway** + **SHOP_AGENT_SECRET** → chọn đúng **máy in nhiệt Windows** & khổ giấy (80mm/58mm) → giữ bật **Tự động chạy cùng Windows** → bấm **Lưu cài đặt & Kết nối**, sau đó bấm **Thử loa 10s** và **In thử** ngay trên thanh trên cùng.
+
+### Cách B: Bản chạy nền dòng lệnh gọn nhẹ (`shop-agent/`)
+Nếu chỉ muốn chạy ngầm bằng Command Prompt mà không mở app giao diện:
 
 Máy tính ở quán cần cài **Node.js 20 trở lên** ([nodejs.org](https://nodejs.org) — tải bản LTS).
 

@@ -5,6 +5,7 @@ node_modules/
 # Build outputs
 dist/
 */dist/
+shop-desktop/release/
 
 # Environment & Secrets (NEVER commit real credentials)
 .env

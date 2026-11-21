@@ -8,9 +8,12 @@
     "dev:server": "npm run dev --prefix server",
     "dev:client": "npm run dev --prefix client",
     "dev:agent": "npm run dev --prefix shop-agent",
+    "dev:desktop": "npm run start --prefix shop-desktop",
     "build:client": "npm run build --prefix client",
     "build:server": "npm run build --prefix server",
     "build:agent": "npm run build --prefix shop-agent",
+    "build:desktop": "npm run build --prefix shop-desktop",
+    "dist:desktop": "npm run dist:portable --prefix shop-desktop",
     "build": "npm run build:client && npm run build:server",
     "start": "npm run start --prefix server",
     "test:e2e": "node tests/e2e-flow.mjs"

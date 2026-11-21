@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Nâng Café — Quầy Nhận Đơn</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <!-- Native Counter Bar -->
+      <header class="counter-bar">
+        <div class="bar-left">
+          <img
+            src="../assets/logo-nang-cafe-reverse.png"
+            alt="Nâng Café"
+            class="bar-logo"
+          />
+          <div class="pill" id="conn-pill">
+            <span class="dot dot--warn" id="conn-dot"></span>
+            <span id="conn-text">Đang khởi tạo...</span>
+          </div>
+          <div class="pill pill--subtle" id="printer-pill">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M6 9V3h12v6" />
+              <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+              <rect x="6" y="14" width="12" height="7" />
+            </svg>
+            <span id="printer-text">Máy in: Mặc định</span>
+          </div>
+        </div>
+
+        <div class="bar-right">
+          <button type="button" class="alarm-btn hidden" id="btn-stop-alarm">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+              <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+            </svg>
+            <span id="alarm-btn-label">Đang báo đơn mới (10s) · Tắt chuông</span>
+          </button>
+
+          <button type="button" class="bar-btn" id="btn-test-alarm" title="Phát thử chuông + đọc Đơn mới trong 10 giây">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+              <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+              <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+            </svg>
+            <span>Thử loa 10s</span>
+          </button>
+
+          <button type="button" class="bar-btn" id="btn-test-print" title="In ngay 1 phiếu mẫu không hiện hộp thoại">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M6 9V3h12v6" />
+              <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+              <rect x="6" y="14" width="12" height="7" />
+            </svg>
+            <span>In thử</span>
+          </button>
+
+          <button type="button" class="bar-btn" id="btn-logs">
+            <span>Nhật ký</span>
+          </button>
+
+          <button type="button" class="bar-btn" id="btn-reload" title="Tải lại trang quản lý">
+            <span>Tải lại</span>
+          </button>
+
+          <button type="button" class="bar-btn bar-btn--accent" id="btn-settings">
+            <span>Cài đặt</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Main Stage: Embedded Railway /admin Dashboard -->
+      <main class="stage">
+        <div class="unconfigured-card hidden" id="unconfigured-view">
+          <h1>Chào mừng tới Nâng Café — Quầy Nhận Đơn</h1>
+          <p>
+            Nhập link server Railway và mã bảo mật <code>SHOP_AGENT_SECRET</code> để laptop luôn trực
+            nhận đơn, tự phát loa báo 10 giây và tự in phiếu nhiệt không cần hỏi.
+          </p>
+          <button type="button" class="primary-btn" id="btn-open-first-setup">
+            Mở cài đặt kết nối ngay
+          </button>
+        </div>
+
+        <webview
+          id="admin-webview"
+          class="admin-webview"
+          partition="persist:nang-admin"
+          allowpopups
+        ></webview>
+
+        <!-- Activity Log Drawer -->
+        <aside class="log-drawer hidden" id="log-drawer" aria-label="Nhật ký nhận và in đơn">
+          <div class="drawer-head">
+            <h2>Nhật ký nhận & in đơn</h2>
+            <div style="display: flex; gap: 6px;">
+              <button type="button" class="mini-btn" id="btn-open-mock-dir">Mở thư mục phiếu thử</button>
+              <button type="button" class="mini-btn" id="btn-close-logs">Đóng</button>
+            </div>
+          </div>
+          <div class="log-list" id="log-list"></div>
+        </aside>
+      </main>
+    </div>
+
+    <!-- Settings Modal -->
+    <div class="modal-backdrop hidden" id="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-heading">
+      <form class="modal-card" id="settings-form">
+        <div class="modal-head">
+          <h2 id="settings-heading">Cài đặt Quầy Nhận Đơn & Máy In</h2>
+          <button type="button" class="mini-btn" id="btn-close-settings">Đóng</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="field">
+            <label for="cfg-server-url">Đường dẫn Server Railway (không có dấu / cuối)</label>
+            <input
+              id="cfg-server-url"
+              type="url"
+              required
+              placeholder="https://nangpos-production-xxxx.up.railway.app"
+            />
+          </div>
+
+          <div class="field">
+            <label for="cfg-agent-secret">Mã bảo mật máy tính quán (SHOP_AGENT_SECRET)</label>
+            <input
+              id="cfg-agent-secret"
+              type="password"
+              required
+              placeholder="Trùng khớp biến SHOP_AGENT_SECRET trên Railway"
+            />
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label for="cfg-printer-mode">Chế độ in phiếu (tự in không hỏi)</label>
+              <select id="cfg-printer-mode">
+                <option value="electron-silent">In nhiệt Windows trực tiếp (khuyên dùng)</option>
+                <option value="escpos-tcp">Máy in mạng LAN (ESC/POS TCP 9100)</option>
+                <option value="mock">Chế độ thử nghiệm (lưu file, không tốn giấy)</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="cfg-paper-mm">Khổ giấy in nhiệt</label>
+              <select id="cfg-paper-mm">
+                <option value="80">80mm (phổ biến)</option>
+                <option value="58">58mm (nhỏ)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field" id="group-win-printer">
+            <div class="label-between">
+              <label for="cfg-printer-name">Chọn máy in nhiệt trên Windows</label>
+              <button type="button" class="link-btn" id="btn-refresh-printers">Quét lại máy in</button>
+            </div>
+            <select id="cfg-printer-name"></select>
+          </div>
+
+          <div class="field-row hidden" id="group-lan-printer">
+            <div class="field">
+              <label for="cfg-printer-host">Địa chỉ IP máy in LAN</label>
+              <input id="cfg-printer-host" type="text" placeholder="192.168.1.200" />
+            </div>
+            <div class="field">
+              <label for="cfg-printer-port">Cổng TCP</label>
+              <input id="cfg-printer-port" type="number" value="9100" />
+            </div>
+          </div>
+
+          <div class="field-row">
+            <label class="checkbox-box">
+              <input id="cfg-audio-enabled" type="checkbox" checked />
+              <span>Bật loa chuông + đọc "Đơn mới" tiếng Việt</span>
+            </label>
+
+            <div class="field">
+              <label for="cfg-alert-seconds">Thời lượng phát loa (giây)</label>
+              <input id="cfg-alert-seconds" type="number" min="3" max="30" value="10" />
+            </div>
+          </div>
+
+          <label class="checkbox-box">
+            <input id="cfg-auto-launch" type="checkbox" checked />
+            <span>Tự động chạy cùng Windows khi bật laptop (thu gọn khay hệ thống)</span>
+          </label>
+        </div>
+
+        <div class="modal-foot">
+          <button type="button" class="secondary-btn" id="btn-cancel-settings">Hủy</button>
+          <button type="submit" class="primary-btn">Lưu cài đặt & Kết nối</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="toast hidden" id="toast" role="status"></div>
+    <script src="./renderer.js"></script>
+  </body>
+</html>
