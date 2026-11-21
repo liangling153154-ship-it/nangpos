@@ -1,0 +1,21 @@
+{
+  "name": "nang-cafe-delivery",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Web đặt ship đồ uống Nâng Café (Cao Bằng) — PWA khách hàng, Server Railway + Postgres, và Windows Shop Agent tự in phiếu & đọc đơn mới.",
+  "scripts": {
+    "install:all": "npm install --prefix server && npm install --prefix client && npm install --prefix shop-agent",
+    "dev:server": "npm run dev --prefix server",
+    "dev:client": "npm run dev --prefix client",
+    "dev:agent": "npm run dev --prefix shop-agent",
+    "build:client": "npm run build --prefix client",
+    "build:server": "npm run build --prefix server",
+    "build:agent": "npm run build --prefix shop-agent",
+    "build": "npm run build:client && npm run build:server",
+    "start": "npm run start --prefix server",
+    "test:e2e": "node tests/e2e-flow.mjs"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

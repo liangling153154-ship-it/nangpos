@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Build outputs
+dist/
+*/dist/
+
+# Environment & Secrets (NEVER commit real credentials)
+.env
+.env.local
+.env.*.local
+server/.env
+shop-agent/.env
+
+# Local dev database & runtime journals
+data/
+server/data/
+shop-agent/data/
+shop-agent/printed-receipts/
+
+# Logs & OS files
+*.log
+.DS_Store
+Thumbs.db
+
+# Impeccable temp files
+.impeccable/
