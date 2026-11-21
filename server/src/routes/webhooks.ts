@@ -35,18 +35,24 @@ webhooksRouter.post('/sepay', async (req, res, next) => {
       return;
     }
 
-    // SePay sends `Authorization: Apikey <secret>`
+    // SePay sends `Authorization: Apikey <secret>` (also accept Bearer / X-Api-Key)
     const authHeader = req.header('authorization') || '';
     const match = authHeader.match(/^(?:Apikey|Bearer)\s+(.+)$/i);
-    const providedKey = match ? match[1].trim() : '';
+    const providedKey = (
+      (match ? match[1] : '') ||
+      req.header('x-api-key') ||
+      ''
+    ).trim();
 
     if (!providedKey || !safeCompare(providedKey, config.sepayWebhookSecret)) {
+      console.warn('[SePay] Rejected webhook: invalid API key');
       res.status(401).json({ success: false, message: 'Invalid SePay API key' });
       return;
     }
 
     const body = req.body as {
       id?: number | string;
+      code?: string | null;
       transferType?: string;
       transferAmount?: number;
       content?: string;
@@ -54,19 +60,25 @@ webhooksRouter.post('/sepay', async (req, res, next) => {
       referenceCode?: string;
     };
 
+    console.log(
+      `[SePay] Received webhook id=${body.id} type=${body.transferType} amount=${body.transferAmount} code=${body.code ?? ''} content="${body.content || ''}"`
+    );
+
     if (body.transferType && body.transferType !== 'in') {
       res.json({ success: true, ignored: true, reason: 'Not an incoming transfer' });
       return;
     }
 
-    const text = `${body.content || ''} ${body.description || ''}`;
-    const codeMatch = text.match(/\bNC\d{4,6}\b/i);
+    // Check SePay's extracted `code` field first, then scan content/description tolerating concatenated bank refs
+    const text = `${body.code || ''} ${body.content || ''} ${body.description || ''}`;
+    const codeMatch = text.match(/(?<![A-Z])NC(\d{4,6})(?!\d)/i);
     if (!codeMatch) {
+      console.log(`[SePay] Ignored: no NC order code found in "${text}"`);
       res.json({ success: true, ignored: true, reason: 'No NC order code found' });
       return;
     }
 
-    const orderCode = codeMatch[0].toUpperCase();
+    const orderCode = `NC${codeMatch[1]}`;
     const order = await getOrderByCode(orderCode);
     if (!order) {
       res.json({ success: true, ignored: true, reason: `Order ${orderCode} not found` });
