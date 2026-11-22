@@ -78,6 +78,44 @@ app.whenReady().then(() => {
     mockReceiptsDir
   );
 
+  // Lock down embedded <webview>: allow navigation ONLY to the configured serverUrl origin
+  function isAllowedWebviewUrl(rawUrl: string): boolean {
+    const serverUrl = configStore.get().serverUrl;
+    if (!serverUrl) return false;
+    try {
+      const target = new URL(rawUrl);
+      const allowed = new URL(serverUrl);
+      return target.origin.toLowerCase() === allowed.origin.toLowerCase();
+    } catch {
+      return false;
+    }
+  }
+
+  app.on('web-contents-created', (_event, contents) => {
+    contents.on('will-attach-webview', (ev, webPreferences, params) => {
+      delete webPreferences.preload;
+      webPreferences.nodeIntegration = false;
+      webPreferences.contextIsolation = true;
+      if (params.src && !isAllowedWebviewUrl(params.src)) {
+        ev.preventDefault();
+      }
+    });
+
+    if (contents.getType() === 'webview') {
+      contents.on('will-navigate', (ev, url) => {
+        if (!isAllowedWebviewUrl(url)) {
+          ev.preventDefault();
+        }
+      });
+      contents.setWindowOpenHandler(({ url }) => {
+        if (url.startsWith('tel:') || isAllowedWebviewUrl(url)) {
+          shell.openExternal(url).catch(() => {});
+        }
+        return { action: 'deny' };
+      });
+    }
+  });
+
   applyAutoLaunch(configStore.get().autoLaunch);
 
   const appIcon = fs.existsSync(iconIcoPath)

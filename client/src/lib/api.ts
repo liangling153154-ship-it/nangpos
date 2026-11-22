@@ -54,8 +54,13 @@ export function placeOrder(
   });
 }
 
-export function fetchCustomerOrder(orderCode: string): Promise<OrderDTO> {
-  return requestJson(`/api/orders/${encodeURIComponent(orderCode)}`);
+export function fetchCustomerOrder(
+  orderCode: string,
+  publicToken: string
+): Promise<OrderDTO> {
+  return requestJson(
+    `/api/orders/${encodeURIComponent(orderCode)}?token=${encodeURIComponent(publicToken)}`
+  );
 }
 
 // ---------- Admin APIs ----------

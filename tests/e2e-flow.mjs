@@ -117,6 +117,7 @@ async function run() {
       NTFY_TOPIC: 'nang-cafe-e2e-test',
       PRINT_UNPAID_TRANSFER: 'false',
       SEPAY_WEBHOOK_SECRET: SEPAY_SECRET,
+      DISABLE_RATE_LIMIT: 'true',
     },
     'server'
   );
@@ -487,6 +488,8 @@ async function run() {
       },
       body: JSON.stringify({
         id: 987654,
+        accountNumber: '8800000000',
+        subAccount: '0000123456',
         code: spOrder.vietqr.content,
         transferType: 'in',
         transferAmount: spOrder.totalAmount,
@@ -506,6 +509,155 @@ async function run() {
     );
 
     console.log(`✓ TEST 4 PASSED: Reprint + Out-of-stock + Pause mode + SePay webhook (${spOrder.orderCode}) all verified!`);
+
+    // =========================================================================
+    // TEST 5: SECURITY HARDENING VERIFICATION (v1.2.0)
+    // =========================================================================
+    // 5a. Security headers & version
+    const healthRes = await fetch(`${SERVER_URL}/api/health`);
+    const healthJson = await healthRes.json();
+    assert.equal(healthJson.version, '1.2.0', 'Health endpoint should expose version 1.2.0');
+    assert.equal(healthRes.headers.get('x-powered-by'), null, 'X-Powered-By must be disabled');
+    assert.ok(healthRes.headers.get('content-security-policy'), 'CSP header must be present');
+    assert.ok(healthRes.headers.get('permissions-policy'), 'Permissions-Policy header must be present');
+    assert.equal(healthRes.headers.get('x-frame-options'), 'SAMEORIGIN');
+
+    // 5b. Order IDOR closed (requires publicToken)
+    assert.ok(codOrder.publicToken && codOrder.publicToken.length >= 24, 'Order must have publicToken');
+    const idorNoTok = await fetch(`${SERVER_URL}/api/orders/${codOrder.orderCode}`);
+    assert.equal(idorNoTok.status, 404, 'GET /api/orders/:code without token must return 404');
+    const idorBadTok = await fetch(`${SERVER_URL}/api/orders/${codOrder.orderCode}?token=deadbeef`);
+    assert.equal(idorBadTok.status, 404, 'GET /api/orders/:code with wrong token must return 404');
+    const idorGoodTok = await fetch(
+      `${SERVER_URL}/api/orders/${codOrder.orderCode}?token=${encodeURIComponent(codOrder.publicToken)}`
+    );
+    assert.equal(idorGoodTok.status, 200, 'GET /api/orders/:code with valid token must return 200');
+    const publicOrderView = await idorGoodTok.json();
+    assert.equal(publicOrderView.orderCode, codOrder.orderCode);
+    assert.equal(publicOrderView.customerPhone, undefined, 'Public order view must never expose phone');
+
+    // 5c. WebSocket hardening: reject agent ?token=, reject customer missing/bad token, reject admin CSWSH
+    const waitCloseCode = (ws, label) =>
+      new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          try { ws.terminate(); } catch {}
+          reject(new Error(`Timed out waiting for WS close: ${label}`));
+        }, 5000);
+        ws.once('close', (code) => {
+          clearTimeout(timer);
+          resolve(code);
+        });
+        ws.once('error', () => {});
+      });
+
+    const badAgentWs = new WebSocket(
+      `ws://127.0.0.1:${PORT}/ws?role=agent&token=${encodeURIComponent(AGENT_SECRET)}`
+    );
+    assert.equal(await waitCloseCode(badAgentWs, 'badAgentWs'), 4001, 'Agent WS with ?token= query string must be rejected');
+
+    const badCustWs = new WebSocket(
+      `ws://127.0.0.1:${PORT}/ws?role=customer&orderCode=${codOrder.orderCode}`
+    );
+    assert.equal(await waitCloseCode(badCustWs, 'badCustWs'), 4001, 'Customer WS without token must be rejected');
+
+    const cswshWs = new WebSocket(`ws://127.0.0.1:${PORT}/ws?role=admin`, {
+      headers: { Cookie: cookieHeader, Origin: 'https://evil.example' },
+    });
+    assert.equal(await waitCloseCode(cswshWs, 'cswshWs'), 4003, 'Admin WS from untrusted Origin must be rejected (4003)');
+
+    // 5d. CSRF Origin protection on Admin mutations
+    const csrfRes = await fetch(`${SERVER_URL}/api/admin/settings/pause`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: cookieHeader,
+        Origin: 'https://evil.example',
+      },
+      body: JSON.stringify({ paused: true, message: 'Hacked' }),
+    });
+    assert.equal(csrfRes.status, 403, 'Cross-origin admin mutation must be blocked with 403');
+
+    // 5e. SePay webhook receiving account validation + txRef anti-replay
+    const spOrder2Res = await fetch(`${SERVER_URL}/api/orders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        customerName: 'Test Replay',
+        customerPhone: '0911888777',
+        customerAddress: 'Phường Sông Hiến, Cao Bằng',
+        paymentMethod: 'bank_transfer',
+        items: [{ menuItemId: traVaiItem.id, quantity: 1 }],
+      }),
+    });
+    const spOrder2 = (await spOrder2Res.json()).order;
+
+    const wrongAccRes = await fetch(`${SERVER_URL}/api/webhooks/sepay`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Apikey ${SEPAY_SECRET}`,
+      },
+      body: JSON.stringify({
+        id: 987655,
+        accountNumber: '9999999999',
+        subAccount: '96247WRONGVA',
+        code: spOrder2.vietqr.content,
+        transferType: 'in',
+        transferAmount: spOrder2.totalAmount,
+        content: spOrder2.vietqr.content,
+        referenceCode: 'FT2611220099',
+      }),
+    });
+    const wrongAccData = await wrongAccRes.json();
+    assert.equal(wrongAccData.ignored, true, 'Wrong destination account must be ignored');
+
+    const replayRes = await fetch(`${SERVER_URL}/api/webhooks/sepay`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Apikey ${SEPAY_SECRET}`,
+      },
+      body: JSON.stringify({
+        id: 987656,
+        accountNumber: '8800000000',
+        subAccount: '0000123456',
+        code: spOrder2.vietqr.content,
+        transferType: 'in',
+        transferAmount: spOrder2.totalAmount,
+        content: spOrder2.vietqr.content,
+        referenceCode: 'FT2611220001', // Replaying spOrder's txRef!
+      }),
+    });
+    const replayData = await replayRes.json();
+    assert.equal(replayData.ignored, true, 'Replayed txRef must be ignored');
+    assert.equal(replayData.reason, 'Transaction already used');
+
+    // 5f. Fail-closed production config check (must refuse to boot with default/weak secrets)
+    const badProdExitCode = await new Promise((resolve) => {
+      const p = spawn(process.execPath, [path.join(repoRoot, 'server/dist/server/src/index.js')], {
+        cwd: repoRoot,
+        env: {
+          PATH: process.env.PATH,
+          NODE_ENV: 'production',
+          PORT: '3499',
+          ADMIN_PASSWORD: 'nangcafe2026',
+          SESSION_SECRET: 'short',
+          SHOP_AGENT_SECRET: 'short',
+        },
+        stdio: 'ignore',
+      });
+      const timer = setTimeout(() => {
+        try { p.kill('SIGKILL'); } catch {}
+        resolve(0);
+      }, 5000);
+      p.once('exit', (code) => {
+        clearTimeout(timer);
+        resolve(code ?? 1);
+      });
+    });
+    assert.notEqual(badProdExitCode, 0, 'Production server must fail-closed with weak/default secrets');
+
+    console.log('✓ TEST 5 PASSED: Security headers, IDOR token, WS/CSWSH, CSRF Origin, SePay anti-replay & fail-closed config verified!');
     console.log(`\n🎉 ALL E2E TESTS PASSED! (ntfy notifications received: ${ntfyMessages.length})`);
   } finally {
     if (adminWs) adminWs.close();

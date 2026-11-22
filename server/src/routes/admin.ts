@@ -8,6 +8,7 @@ import {
   createSessionToken,
   recordFailedLogin,
   requireAdmin,
+  requireSameOrigin,
   verifyAdminCredentials,
   verifySessionToken,
 } from '../services/auth.js';
@@ -29,6 +30,9 @@ import { realtimeHub } from '../services/ws.js';
 import { APP_BUILD_DATE, APP_VERSION } from '../version.js';
 
 export const adminRouter = Router();
+
+// CSRF Origin protection on all state-changing admin endpoints
+adminRouter.use(requireSameOrigin);
 
 adminRouter.post('/login', (req, res) => {
   const ip = req.ip || req.socket.remoteAddress || 'unknown';

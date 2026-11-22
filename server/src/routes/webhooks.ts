@@ -1,7 +1,11 @@
 import crypto from 'node:crypto';
 import { Router } from 'express';
 import { config } from '../config.js';
-import { confirmOrderPayment, getOrderByCode } from '../services/orders.js';
+import {
+  confirmOrderPayment,
+  findOrderByTxRef,
+  getOrderByCode,
+} from '../services/orders.js';
 
 export const webhooksRouter = Router();
 
@@ -53,6 +57,8 @@ webhooksRouter.post('/sepay', async (req, res, next) => {
     const body = req.body as {
       id?: number | string;
       code?: string | null;
+      accountNumber?: string;
+      subAccount?: string | null;
       transferType?: string;
       transferAmount?: number;
       content?: string;
@@ -61,7 +67,7 @@ webhooksRouter.post('/sepay', async (req, res, next) => {
     };
 
     console.log(
-      `[SePay] Received webhook id=${body.id} type=${body.transferType} amount=${body.transferAmount} code=${body.code ?? ''} content="${body.content || ''}"`
+      `[SePay] Received webhook id=${body.id} type=${body.transferType} amount=${body.transferAmount} code=${body.code ?? ''} sub=${body.subAccount ?? ''} content="${body.content || ''}"`
     );
 
     if (body.transferType && body.transferType !== 'in') {
@@ -89,6 +95,20 @@ webhooksRouter.post('/sepay', async (req, res, next) => {
       res.json({ success: true, ignored: true, reason: 'No NC order code found' });
       return;
     }
+
+    // Verify destination account / VA matches our configured receiving account (when provided)
+    const expectedAcc = config.vietqr.accountNo.replace(/\s+/g, '').toUpperCase();
+    const payloadAccounts = [body.subAccount, body.accountNumber]
+      .filter((a): a is string => typeof a === 'string' && a.trim().length > 0)
+      .map((a) => a.replace(/\s+/g, '').toUpperCase());
+    if (expectedAcc && payloadAccounts.length > 0 && !payloadAccounts.includes(expectedAcc)) {
+      console.warn(
+        `[SePay] Ignored ${orderCode}: destination account mismatch (${payloadAccounts.join(',')} != ${expectedAcc})`
+      );
+      res.json({ success: true, ignored: true, reason: 'Receiving account mismatch' });
+      return;
+    }
+
     const order = await getOrderByCode(orderCode);
     if (!order) {
       res.json({ success: true, ignored: true, reason: `Order ${orderCode} not found` });
@@ -108,7 +128,18 @@ webhooksRouter.post('/sepay', async (req, res, next) => {
       return;
     }
 
-    const txRef = String(body.referenceCode || body.id || '');
+    // Prevent a single bank transaction from confirming two different orders
+    const txRef = String(body.referenceCode || body.id || '').trim();
+    if (txRef) {
+      const existingOwner = await findOrderByTxRef(txRef);
+      if (existingOwner && existingOwner !== orderCode) {
+        console.warn(
+          `[SePay] Blocked tx replay: txRef=${txRef} already applied to ${existingOwner}, refusing ${orderCode}`
+        );
+        res.json({ success: true, ignored: true, reason: 'Transaction already used' });
+        return;
+      }
+    }
     const result = await confirmOrderPayment(orderCode, {
       source: 'sepay',
       txRef,

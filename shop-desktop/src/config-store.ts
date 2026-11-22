@@ -17,6 +17,46 @@ export interface DesktopConfig {
   configured: boolean;
 }
 
+interface StoredConfigFile extends Omit<DesktopConfig, 'agentSecret'> {
+  agentSecret?: string;
+  agentSecretEncrypted?: string;
+}
+
+interface SecretCipher {
+  isAvailable(): boolean;
+  encrypt(plain: string): string;
+  decrypt(encoded: string): string;
+}
+
+function getElectronSafeStorage(): SecretCipher {
+  try {
+    // Loaded dynamically so Node unit tests can import ConfigStore without Electron runtime
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const electron = require('electron') as {
+      safeStorage?: {
+        isEncryptionAvailable(): boolean;
+        encryptString(str: string): Buffer;
+        decryptString(buf: Buffer): string;
+      };
+    };
+    const ss = electron?.safeStorage;
+    if (ss && typeof ss.isEncryptionAvailable === 'function') {
+      return {
+        isAvailable: () => ss.isEncryptionAvailable(),
+        encrypt: (plain: string) => ss.encryptString(plain).toString('base64'),
+        decrypt: (encoded: string) => ss.decryptString(Buffer.from(encoded, 'base64')),
+      };
+    }
+  } catch {
+    // Running outside Electron (smoke test)
+  }
+  return {
+    isAvailable: () => false,
+    encrypt: (s) => s,
+    decrypt: (s) => s,
+  };
+}
+
 const DEFAULT_CONFIG: DesktopConfig = {
   serverUrl: 'http://localhost:3000',
   agentSecret: '',
@@ -34,10 +74,12 @@ const DEFAULT_CONFIG: DesktopConfig = {
 export class ConfigStore {
   private filePath: string;
   private current: DesktopConfig;
+  private cipher: SecretCipher;
 
   constructor(userDataDir: string) {
     fs.mkdirSync(userDataDir, { recursive: true });
     this.filePath = path.join(userDataDir, 'nang-desktop-config.json');
+    this.cipher = getElectronSafeStorage();
     this.current = this.load();
   }
 
@@ -46,17 +88,67 @@ export class ConfigStore {
       return { ...DEFAULT_CONFIG };
     }
     try {
-      const raw = JSON.parse(fs.readFileSync(this.filePath, 'utf8')) as Partial<DesktopConfig>;
-      return {
+      const raw = JSON.parse(fs.readFileSync(this.filePath, 'utf8')) as Partial<StoredConfigFile>;
+      let secret = '';
+      let needsMigration = false;
+
+      if (raw.agentSecretEncrypted && this.cipher.isAvailable()) {
+        try {
+          secret = this.cipher.decrypt(raw.agentSecretEncrypted);
+        } catch {
+          secret = '';
+        }
+      } else if (raw.agentSecret) {
+        secret = raw.agentSecret;
+        if (this.cipher.isAvailable()) {
+          needsMigration = true;
+        }
+      }
+
+      const loaded: DesktopConfig = {
         ...DEFAULT_CONFIG,
         ...raw,
+        agentSecret: secret,
         serverUrl: (raw.serverUrl || DEFAULT_CONFIG.serverUrl).replace(/\/+$/, ''),
         paperMm: raw.paperMm === 58 ? 58 : 80,
         alertSeconds: Math.max(3, Math.min(30, Number(raw.alertSeconds || 10))),
       };
+
+      // Transparently migrate plaintext v1.1.0 secret to Windows DPAPI encryption
+      if (needsMigration && loaded.agentSecret) {
+        this.writeDisk(loaded);
+      }
+      return loaded;
     } catch {
       return { ...DEFAULT_CONFIG };
     }
+  }
+
+  private writeDisk(cfg: DesktopConfig): void {
+    const toStore: StoredConfigFile = {
+      serverUrl: cfg.serverUrl,
+      printerMode: cfg.printerMode,
+      printerName: cfg.printerName,
+      paperMm: cfg.paperMm,
+      printerHost: cfg.printerHost,
+      printerPort: cfg.printerPort,
+      audioEnabled: cfg.audioEnabled,
+      alertSeconds: cfg.alertSeconds,
+      autoLaunch: cfg.autoLaunch,
+      configured: cfg.configured,
+    };
+
+    if (cfg.agentSecret) {
+      if (this.cipher.isAvailable()) {
+        toStore.agentSecretEncrypted = this.cipher.encrypt(cfg.agentSecret);
+      } else {
+        toStore.agentSecret = cfg.agentSecret;
+      }
+    }
+
+    const tmp = `${this.filePath}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(toStore, null, 2), { encoding: 'utf8', mode: 0o600 });
+    fs.renameSync(tmp, this.filePath);
   }
 
   get(): DesktopConfig {
@@ -77,9 +169,7 @@ export class ConfigStore {
       configured: true,
     };
     this.current = next;
-    const tmp = `${this.filePath}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(next, null, 2), 'utf8');
-    fs.renameSync(tmp, this.filePath);
+    this.writeDisk(next);
     return { ...next };
   }
 }

@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import {
   ADMIN_COOKIE_NAME,
+  isAllowedOrigin,
   parseCookieHeader,
   verifySessionToken,
   verifyShopAgentSecret,
@@ -26,19 +27,37 @@ class RealtimeHub {
   private customerWatchers = new Map<string, Set<WebSocket>>();
   private publicClients = new Set<WebSocket>();
   private onAgentConnectedCallback: ((ws: WebSocket) => Promise<void>) | null = null;
+  private verifyCustomerTokenCallback: ((orderCode: string, token: string) => Promise<boolean>) | null = null;
 
   attach(
     server: HttpServer,
-    onAgentConnected?: (ws: WebSocket) => Promise<void>
+    opts?: {
+      onAgentConnected?: (ws: WebSocket) => Promise<void>;
+      verifyCustomerToken?: (orderCode: string, token: string) => Promise<boolean>;
+    }
   ): void {
-    this.onAgentConnectedCallback = onAgentConnected || null;
-    this.wss = new WebSocketServer({ server, path: '/ws' });
+    this.onAgentConnectedCallback = opts?.onAgentConnected || null;
+    this.verifyCustomerTokenCallback = opts?.verifyCustomerToken || null;
+    this.wss = new WebSocketServer({
+      server,
+      path: '/ws',
+      maxPayload: 64 * 1024, // 64 KB frame cap against memory exhaustion
+    });
 
     this.wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
+      if (this.wss && this.wss.clients.size > 500) {
+        ws.close(1013, 'Server busy');
+        return;
+      }
+
       const url = new URL(req.url || '/ws', 'http://localhost');
       const role = url.searchParams.get('role') || 'public';
 
       if (role === 'admin') {
+        if (!isAllowedOrigin(req.headers.origin, req.headers.host)) {
+          ws.close(4003, 'Forbidden origin');
+          return;
+        }
         const cookies = parseCookieHeader(req.headers.cookie);
         const session = verifySessionToken(cookies[ADMIN_COOKIE_NAME]);
         if (!session) {
@@ -57,10 +76,8 @@ class RealtimeHub {
       }
 
       if (role === 'agent') {
-        const secret =
-          (req.headers['x-agent-secret'] as string) ||
-          url.searchParams.get('token') ||
-          '';
+        // Accept secret via header ONLY (never URL query string, which leaks into reverse-proxy logs)
+        const secret = (req.headers['x-agent-secret'] as string) || '';
         if (!verifyShopAgentSecret(secret)) {
           ws.close(4001, 'Unauthorized shop agent');
           return;
@@ -118,22 +135,39 @@ class RealtimeHub {
 
       if (role === 'customer') {
         const orderCode = (url.searchParams.get('orderCode') || '').toUpperCase();
-        if (orderCode) {
-          let set = this.customerWatchers.get(orderCode);
-          if (!set) {
-            set = new Set();
-            this.customerWatchers.set(orderCode, set);
-          }
-          set.add(ws);
-          ws.on('close', () => {
-            set?.delete(ws);
-            if (set && set.size === 0) {
-              this.customerWatchers.delete(orderCode);
+        const token = url.searchParams.get('token') || '';
+        if (!orderCode || !token || !this.verifyCustomerTokenCallback) {
+          ws.close(4001, 'Unauthorized order watcher');
+          return;
+        }
+
+        this.verifyCustomerTokenCallback(orderCode, token)
+          .then((ok) => {
+            if (!ok) {
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.close(4001, 'Unauthorized order watcher');
+              }
+              return;
+            }
+            if (ws.readyState !== WebSocket.OPEN) return;
+            let set = this.customerWatchers.get(orderCode);
+            if (!set) {
+              set = new Set();
+              this.customerWatchers.set(orderCode, set);
+            }
+            set.add(ws);
+            ws.on('close', () => {
+              set?.delete(ws);
+              if (set && set.size === 0) {
+                this.customerWatchers.delete(orderCode);
+              }
+            });
+          })
+          .catch(() => {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.close(4001, 'Unauthorized order watcher');
             }
           });
-        }
-        this.publicClients.add(ws);
-        ws.on('close', () => this.publicClients.delete(ws));
         return;
       }
 

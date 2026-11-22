@@ -1,43 +1,66 @@
 import crypto from 'node:crypto';
 import type { Request, Response, NextFunction } from 'express';
 import { config } from '../config.js';
+import { BoundedRateLimiter } from './rate-limit.js';
 
 export const ADMIN_COOKIE_NAME = 'nang_admin_session';
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-// Simple login rate limiter by IP
-const loginAttempts = new Map<string, { count: number; resetAt: number }>();
+// Bounded login rate limiter (8 failed attempts / 15 minutes per IP)
+const loginLimiter = new BoundedRateLimiter(8, 15 * 60 * 1000, 3000);
 
 export function checkLoginRateLimit(ip: string): { allowed: boolean; retryAfterSec?: number } {
-  const now = Date.now();
-  const rec = loginAttempts.get(ip);
-  if (!rec || rec.resetAt < now) {
-    return { allowed: true };
-  }
-  if (rec.count >= 8) {
-    return { allowed: false, retryAfterSec: Math.ceil((rec.resetAt - now) / 1000) };
-  }
-  return { allowed: true };
+  return loginLimiter.check(ip);
 }
 
 export function recordFailedLogin(ip: string): void {
-  const now = Date.now();
-  const rec = loginAttempts.get(ip);
-  if (!rec || rec.resetAt < now) {
-    loginAttempts.set(ip, { count: 1, resetAt: now + 15 * 60 * 1000 });
-  } else {
-    rec.count += 1;
-  }
+  loginLimiter.consume(ip);
 }
 
 export function clearFailedLogins(ip: string): void {
-  loginAttempts.delete(ip);
+  loginLimiter.reset(ip);
 }
 
-function timingSafeStrEqual(a: string, b: string): boolean {
+export function timingSafeStrEqual(a: string, b: string): boolean {
   const ha = crypto.createHash('sha256').update(a).digest();
   const hb = crypto.createHash('sha256').update(b).digest();
   return crypto.timingSafeEqual(ha, hb);
+}
+
+export function isAllowedOrigin(
+  originHeader: string | undefined,
+  hostHeader: string | undefined
+): boolean {
+  if (!originHeader) return true; // Non-browser clients / same-origin navigations without Origin
+  try {
+    const parsed = new URL(originHeader);
+    if (hostHeader && parsed.host.toLowerCase() === hostHeader.toLowerCase()) {
+      return true;
+    }
+    if (config.publicUrl) {
+      const pub = new URL(config.publicUrl);
+      if (parsed.origin.toLowerCase() === pub.origin.toLowerCase()) {
+        return true;
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+export function requireSameOrigin(req: Request, res: Response, next: NextFunction): void {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
+    next();
+    return;
+  }
+  const origin = req.header('origin');
+  const host = req.header('host');
+  if (!isAllowedOrigin(origin, host)) {
+    res.status(403).json({ error: 'Yêu cầu bị từ chối do sai nguồn gốc (CSRF protection).' });
+    return;
+  }
+  next();
 }
 
 export function verifyAdminCredentials(username: string, password: string): boolean {

@@ -128,6 +128,7 @@ export interface OrderDTO {
   printCount: number;
   createdAt: string;
   updatedAt: string;
+  publicToken?: string;
   vietqr?: VietQRPaymentInfo;
 }
 

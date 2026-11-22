@@ -1,6 +1,6 @@
 {
   "name": "nang-cafe-delivery",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "description": "Web đặt ship đồ uống Nâng Café (Cao Bằng) — PWA khách hàng, Server Railway + Postgres, và Windows Shop Agent tự in phiếu & đọc đơn mới.",
   "scripts": {

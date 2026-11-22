@@ -5,9 +5,20 @@ import {
   getMenuResponse,
   getOrderByCode,
   HttpError,
+  verifyOrderPublicToken,
 } from '../services/orders.js';
 import { getDb } from '../db/index.js';
+import { BoundedRateLimiter } from '../services/rate-limit.js';
 import { APP_BUILD_DATE, APP_VERSION } from '../version.js';
+
+// Anti-spam protection: max 6 orders / 10 minutes per IP + 15s cooldown per phone
+const orderIpLimiter = new BoundedRateLimiter(6, 10 * 60 * 1000, 5000);
+const orderPhoneCooldown = new BoundedRateLimiter(1, 15 * 1000, 5000);
+const orderLookupLimiter = new BoundedRateLimiter(40, 5 * 60 * 1000, 5000);
+
+function isRateLimitBypassed(): boolean {
+  return process.env.NODE_ENV === 'test' && process.env.DISABLE_RATE_LIMIT === 'true';
+}
 
 const orderItemSchema = z.object({
   menuItemId: z.number().int().positive(),
@@ -78,11 +89,34 @@ publicRouter.get('/menu', async (_req, res, next) => {
 
 publicRouter.post('/orders', async (req, res, next) => {
   try {
+    const ip = req.ip || req.socket.remoteAddress || 'unknown';
+    if (!isRateLimitBypassed()) {
+      const ipGate = orderIpLimiter.check(ip);
+      if (!ipGate.allowed) {
+        res.status(429).json({
+          error: `Bạn đặt đơn quá nhanh. Vui lòng thử lại sau ${ipGate.retryAfterSec} giây.`,
+        });
+        return;
+      }
+    }
+
     const parsed = createOrderSchema.safeParse(req.body);
     if (!parsed.success) {
       const firstMsg = parsed.error.issues[0]?.message || 'Thông tin đặt hàng chưa hợp lệ.';
       res.status(400).json({ error: firstMsg, issues: parsed.error.issues });
       return;
+    }
+
+    if (!isRateLimitBypassed()) {
+      const normPhone = parsed.data.customerPhone.replace(/\D/g, '');
+      const phoneGate = orderPhoneCooldown.consume(normPhone);
+      if (!phoneGate.allowed) {
+        res.status(429).json({
+          error: `Đơn hàng vừa được gửi. Vui lòng chờ ${phoneGate.retryAfterSec} giây trước khi đặt thêm.`,
+        });
+        return;
+      }
+      orderIpLimiter.consume(ip);
     }
 
     const { order } = await createOrder(parsed.data);
@@ -101,19 +135,37 @@ publicRouter.post('/orders', async (req, res, next) => {
 
 publicRouter.get('/orders/:orderCode', async (req, res, next) => {
   try {
+    const ip = req.ip || req.socket.remoteAddress || 'unknown';
+    if (!isRateLimitBypassed()) {
+      const gate = orderLookupLimiter.consume(ip);
+      if (!gate.allowed) {
+        res.status(429).json({ error: 'Quá nhiều yêu cầu tra cứu đơn. Vui lòng thử lại sau.' });
+        return;
+      }
+    }
+
     const code = (req.params.orderCode || '').trim().toUpperCase();
-    if (!/^(NC\.\d{4}\.\d{3,5}|NC\d{4,9})$/.test(code)) {
-      res.status(400).json({ error: 'Mã đơn hàng không hợp lệ.' });
+    const token = typeof req.query.token === 'string' ? req.query.token.trim() : '';
+    if (!/^(NC\.\d{4}\.\d{3,5}|NC\d{4,9})$/.test(code) || !token) {
+      res.status(404).json({ error: 'Không tìm thấy đơn hàng hoặc đường dẫn không hợp lệ.' });
       return;
     }
+
+    const validToken = await verifyOrderPublicToken(code, token);
+    if (!validToken) {
+      res.status(404).json({ error: 'Không tìm thấy đơn hàng hoặc đường dẫn không hợp lệ.' });
+      return;
+    }
+
     const order = await getOrderByCode(code);
     if (!order) {
       res.status(404).json({ error: 'Không tìm thấy đơn hàng.' });
       return;
     }
-    // Return customer-safe view (masks nothing needed for their own receipt lookup, excludes internal fields)
+    // Return customer-safe view (excludes customer PII and internal fields)
     res.json({
       orderCode: order.orderCode,
+      publicToken: order.publicToken,
       status: order.status,
       paymentMethod: order.paymentMethod,
       paymentStatus: order.paymentStatus,

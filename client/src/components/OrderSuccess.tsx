@@ -15,8 +15,11 @@ export function OrderSuccess({ order: initialOrder, onClose }: OrderSuccessProps
 
   // Listen for live payment/status updates via WebSocket + gentle refresh fallback
   useEffect(() => {
+    const token = order.publicToken || '';
+    if (!token) return;
+
     const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${wsProto}//${window.location.host}/ws?role=customer&orderCode=${encodeURIComponent(order.orderCode)}`;
+    const wsUrl = `${wsProto}//${window.location.host}/ws?role=customer&orderCode=${encodeURIComponent(order.orderCode)}&token=${encodeURIComponent(token)}`;
     let ws: WebSocket | null = null;
     try {
       ws = new WebSocket(wsUrl);
@@ -40,7 +43,7 @@ export function OrderSuccess({ order: initialOrder, onClose }: OrderSuccessProps
     }
 
     const timer = window.setInterval(() => {
-      fetchCustomerOrder(order.orderCode)
+      fetchCustomerOrder(order.orderCode, token)
         .then((fresh) => setOrder((prev) => ({ ...prev, ...fresh })))
         .catch(() => {});
     }, 15_000);
@@ -49,7 +52,7 @@ export function OrderSuccess({ order: initialOrder, onClose }: OrderSuccessProps
       ws?.close();
       window.clearInterval(timer);
     };
-  }, [order.orderCode]);
+  }, [order.orderCode, order.publicToken]);
 
   async function copyText(key: string, value: string) {
     try {

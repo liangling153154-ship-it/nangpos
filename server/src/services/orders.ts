@@ -79,6 +79,7 @@ function mapOrderRow(row: any): OrderDTO {
     printStatus: row.print_status,
     printedAt: row.printed_at ? new Date(row.printed_at).toISOString() : null,
     printCount: Number(row.print_count || 0),
+    publicToken: row.public_token || undefined,
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
   };
@@ -378,6 +379,7 @@ export async function createOrder(input: CreateOrderInput): Promise<{
     }
 
     const orderCode = await generateUniqueOrderCode(tx);
+    const publicToken = crypto.randomBytes(16).toString('hex');
     const isCod = input.paymentMethod === 'cod';
     const initialStatus: OrderStatus = isCod ? 'pending_shop' : 'awaiting_payment';
     const paymentStatus = isCod ? 'cod' : 'unpaid';
@@ -387,8 +389,8 @@ export async function createOrder(input: CreateOrderInput): Promise<{
       `INSERT INTO orders (
          order_code, customer_name, customer_phone, customer_address, note,
          items, subtotal, total_amount, payment_method, payment_status,
-         status, print_status
-       ) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12)
+         status, print_status, public_token
+       ) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12,$13)
        RETURNING *`,
       [
         orderCode,
@@ -403,6 +405,7 @@ export async function createOrder(input: CreateOrderInput): Promise<{
         paymentStatus,
         initialStatus,
         shouldPrintNow ? 'pending' : 'not_queued',
+        publicToken,
       ]
     );
 
@@ -452,6 +455,33 @@ export async function getOrderByCode(orderCode: string): Promise<OrderDTO | null
     order.vietqr = await generateOrderVietQr(order.orderCode, order.totalAmount);
   }
   return order;
+}
+
+export async function verifyOrderPublicToken(
+  orderCode: string,
+  token: string
+): Promise<boolean> {
+  if (!orderCode || !token) return false;
+  const db = getDb();
+  const res = await db.query<{ public_token: string | null }>(
+    `SELECT public_token FROM orders WHERE order_code = $1`,
+    [orderCode.toUpperCase()]
+  );
+  const stored = res.rows[0]?.public_token;
+  if (!stored) return false;
+  const ha = crypto.createHash('sha256').update(token).digest();
+  const hb = crypto.createHash('sha256').update(stored).digest();
+  return crypto.timingSafeEqual(ha, hb);
+}
+
+export async function findOrderByTxRef(txRef: string): Promise<string | null> {
+  if (!txRef) return null;
+  const db = getDb();
+  const res = await db.query<{ order_code: string }>(
+    `SELECT order_code FROM orders WHERE payment_tx_ref = $1 LIMIT 1`,
+    [txRef]
+  );
+  return res.rows[0]?.order_code || null;
 }
 
 export async function listOrders(filter?: {

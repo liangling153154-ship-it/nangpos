@@ -19,7 +19,26 @@ import {
   SearchIcon,
 } from '../components/Icons';
 
-const RECENT_ORDER_KEY = 'nang_recent_order_code_v1';
+const RECENT_ORDER_KEY = 'nang_recent_order_v2';
+
+interface SavedRecentOrder {
+  orderCode: string;
+  publicToken: string;
+}
+
+function loadRecentOrder(): SavedRecentOrder | null {
+  try {
+    const raw = localStorage.getItem(RECENT_ORDER_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<SavedRecentOrder>;
+    if (parsed.orderCode && parsed.publicToken) {
+      return { orderCode: parsed.orderCode, publicToken: parsed.publicToken };
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -37,13 +56,7 @@ export function CustomerPage() {
   const [selectedDrink, setSelectedDrink] = useState<MenuItemDTO | null>(null);
   const [cartOpen, setCartOpen] = useState(false);
   const [activeOrder, setActiveOrder] = useState<OrderDTO | null>(null);
-  const [recentOrderCode, setRecentOrderCode] = useState<string | null>(() => {
-    try {
-      return localStorage.getItem(RECENT_ORDER_KEY);
-    } catch {
-      return null;
-    }
-  });
+  const [recentOrder, setRecentOrder] = useState<SavedRecentOrder | null>(() => loadRecentOrder());
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
 
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
@@ -180,21 +193,27 @@ export function CustomerPage() {
     setCart([]);
     setCartOpen(false);
     setActiveOrder(order);
-    setRecentOrderCode(order.orderCode);
-    try {
-      localStorage.setItem(RECENT_ORDER_KEY, order.orderCode);
-    } catch {
-      // ignore
+    if (order.publicToken) {
+      const saved: SavedRecentOrder = {
+        orderCode: order.orderCode,
+        publicToken: order.publicToken,
+      };
+      setRecentOrder(saved);
+      try {
+        localStorage.setItem(RECENT_ORDER_KEY, JSON.stringify(saved));
+      } catch {
+        // ignore
+      }
     }
   }
 
   async function openRecentOrder() {
-    if (!recentOrderCode) return;
+    if (!recentOrder) return;
     try {
-      const order = await fetchCustomerOrder(recentOrderCode);
+      const order = await fetchCustomerOrder(recentOrder.orderCode, recentOrder.publicToken);
       setActiveOrder(order);
     } catch {
-      setRecentOrderCode(null);
+      setRecentOrder(null);
       try {
         localStorage.removeItem(RECENT_ORDER_KEY);
       } catch {}
@@ -233,14 +252,14 @@ export function CustomerPage() {
             </a>
 
             <div className="brand-actions">
-              {recentOrderCode && (
+              {recentOrder && (
                 <button
                   type="button"
                   className="recent-order-chip"
                   onClick={openRecentOrder}
                 >
                   <ReceiptIcon size={15} />
-                  <span>Đơn {recentOrderCode}</span>
+                  <span>Đơn {recentOrder.orderCode}</span>
                 </button>
               )}
               {installPrompt && (

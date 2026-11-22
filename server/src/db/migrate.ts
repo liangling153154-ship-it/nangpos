@@ -68,13 +68,19 @@ export async function runMigrations(): Promise<void> {
       print_status TEXT NOT NULL DEFAULT 'not_queued' CHECK (print_status IN ('not_queued', 'pending', 'printed')),
       printed_at TIMESTAMPTZ,
       print_count INTEGER NOT NULL DEFAULT 0,
+      public_token TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    ALTER TABLE orders ADD COLUMN IF NOT EXISTS public_token TEXT;
+
     CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders (created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_orders_status ON orders (status);
     CREATE INDEX IF NOT EXISTS idx_orders_print_status ON orders (print_status);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_payment_tx_ref
+      ON orders (payment_tx_ref)
+      WHERE payment_tx_ref IS NOT NULL AND payment_tx_ref <> '';
 
     CREATE TABLE IF NOT EXISTS print_jobs (
       id SERIAL PRIMARY KEY,

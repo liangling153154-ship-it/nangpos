@@ -62,6 +62,8 @@ export const config = {
 
 export function validateProdConfig(): void {
   const warnings: string[] = [];
+  const fatalErrors: string[] = [];
+
   if (!config.vietqr.accountNo) {
     warnings.push('VIETQR_ACCOUNT_NO chưa được cấu hình — đơn chuyển khoản sẽ không tạo được mã QR thật.');
   }
@@ -69,17 +71,32 @@ export function validateProdConfig(): void {
     warnings.push('NTFY_TOPIC chưa được cấu hình — thông báo sang điện thoại chủ quán đang tạm tắt.');
   }
   if (config.isProd) {
-    if (config.adminPassword === 'nangcafe2026') {
-      warnings.push('CẢNH BÁO BẢO MẬT: Đang dùng ADMIN_PASSWORD mặc định trong production!');
+    if (!process.env.ADMIN_PASSWORD || config.adminPassword === 'nangcafe2026') {
+      fatalErrors.push('ADMIN_PASSWORD thiếu hoặc đang dùng mật khẩu mặc định trong production!');
     }
-    if (config.sessionSecret.startsWith('dev-only-')) {
-      warnings.push('CẢNH BÁO BẢO MẬT: Đang dùng SESSION_SECRET mặc định trong production!');
+    if (
+      !process.env.SESSION_SECRET ||
+      config.sessionSecret.startsWith('dev-only-') ||
+      config.sessionSecret.length < 16
+    ) {
+      fatalErrors.push('SESSION_SECRET thiếu, ngắn hơn 16 ký tự hoặc đang dùng giá trị mặc định!');
     }
-    if (config.shopAgentSecret.startsWith('dev-only-')) {
-      warnings.push('CẢNH BÁO BẢO MẬT: Đang dùng SHOP_AGENT_SECRET mặc định trong production!');
+    if (
+      !process.env.SHOP_AGENT_SECRET ||
+      config.shopAgentSecret.startsWith('dev-only-') ||
+      config.shopAgentSecret.length < 12
+    ) {
+      fatalErrors.push('SHOP_AGENT_SECRET thiếu, ngắn hơn 12 ký tự hoặc đang dùng giá trị mặc định!');
     }
   }
+
   for (const w of warnings) {
     console.warn(`[Nâng Café Config] ${w}`);
+  }
+  if (fatalErrors.length > 0) {
+    for (const e of fatalErrors) {
+      console.error(`[Nâng Café Security FATAL] ${e}`);
+    }
+    throw new Error('Refusing to start in production with missing or insecure secrets.');
   }
 }

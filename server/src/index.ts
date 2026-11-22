@@ -13,7 +13,7 @@ import { adminRouter } from './routes/admin.js';
 import { agentRouter } from './routes/agent.js';
 import { webhooksRouter } from './routes/webhooks.js';
 import { realtimeHub } from './services/ws.js';
-import { getPendingPrintJobs } from './services/orders.js';
+import { getPendingPrintJobs, verifyOrderPublicToken } from './services/orders.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Works for both tsx (`server/src`) and compiled tsc (`server/dist/server/src`)
@@ -29,15 +29,41 @@ export async function startServer() {
   await seedDatabase();
 
   const app = express();
+  app.disable('x-powered-by');
   app.set('trust proxy', 1); // Required behind Railway TLS reverse proxy for Secure cookies & IP rate limiting
-  app.use(express.json({ limit: '1mb' }));
+  app.use(express.json({ limit: '100kb' }));
   app.use(cookieParser());
 
-  // Basic security headers
+  // Security headers (HSTS, CSP, Permissions-Policy, anti-sniff, clickjacking)
   app.use((_req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader(
+      'Permissions-Policy',
+      'camera=(), microphone=(), geolocation=(), payment=()'
+    );
+    res.setHeader(
+      'Content-Security-Policy',
+      [
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data:",
+        "font-src 'self'",
+        "media-src 'self'",
+        "connect-src 'self' ws: wss:",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "frame-ancestors 'self'",
+      ].join('; ')
+    );
+    if (config.isProd) {
+      res.setHeader(
+        'Strict-Transport-Security',
+        'max-age=31536000; includeSubDomains'
+      );
+    }
     next();
   });
 
@@ -80,13 +106,16 @@ export async function startServer() {
 
   const server = http.createServer(app);
 
-  // Attach WebSocket hub and push pending unprinted jobs immediately upon Shop Agent connect
-  realtimeHub.attach(server, async (agentWs) => {
-    const pending = await getPendingPrintJobs();
-    if (pending.length > 0) {
-      console.log(`[WS] Pushing ${pending.length} pending print job(s) to reconnected Shop Agent`);
-      realtimeHub.pushPendingJobsToAgent(agentWs, pending);
-    }
+  // Attach WebSocket hub with agent pending-job sync + customer token verification
+  realtimeHub.attach(server, {
+    onAgentConnected: async (agentWs) => {
+      const pending = await getPendingPrintJobs();
+      if (pending.length > 0) {
+        console.log(`[WS] Pushing ${pending.length} pending print job(s) to reconnected Shop Agent`);
+        realtimeHub.pushPendingJobsToAgent(agentWs, pending);
+      }
+    },
+    verifyCustomerToken: verifyOrderPublicToken,
   });
 
   await new Promise<void>((resolve) => {
