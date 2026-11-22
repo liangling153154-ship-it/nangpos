@@ -51,9 +51,10 @@ async function printElectronSilent(
 ): Promise<void> {
   const html = buildReceiptHtml(ticket, cfg.paperMm);
 
+  const printableMm = cfg.paperMm === 58 ? 48 : 72;
   const printWin = new BrowserWindow({
     show: false,
-    width: cfg.paperMm === 58 ? 260 : 340,
+    width: cfg.paperMm === 58 ? 190 : 272,
     height: 900,
     webPreferences: {
       sandbox: true,
@@ -68,10 +69,10 @@ async function printElectronSilent(
 
     // Give layout engine a tick to measure exact height
     const contentHeightPx: number = await printWin.webContents.executeJavaScript(
-      'Math.ceil(document.body.scrollHeight) + 24'
+      'Math.ceil(document.body.scrollHeight) + 28'
     );
-    // 1 CSS px ≈ 264.58 microns
-    const widthMicrons = cfg.paperMm * 1000;
+    // 1 CSS px ≈ 264.58 microns; use true thermal print head width (72mm K80 / 48mm K58)
+    const widthMicrons = printableMm * 1000;
     const heightMicrons = Math.max(80_000, Math.round(contentHeightPx * 265));
 
     await new Promise<void>((resolve, reject) => {

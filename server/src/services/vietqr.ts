@@ -89,11 +89,15 @@ export async function generateOrderVietQr(
     return undefined;
   }
 
+  // Strip dots/separators for banking transfer content (e.g. NC.2211.001 -> NC2211001)
+  // so every Vietnamese bank app preserves it intact and SePay's `NC + integer` pattern matches 100%.
+  const transferContent = orderCode.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+
   const emvPayload = buildVietQrPayload({
     bankBin: config.vietqr.bankBin,
     accountNo: config.vietqr.accountNo,
     amount,
-    content: orderCode,
+    content: transferContent,
   });
 
   const qrDataUrl = await QRCode.toDataURL(emvPayload, {
@@ -112,7 +116,7 @@ export async function generateOrderVietQr(
     accountNo: config.vietqr.accountNo,
     accountName: config.vietqr.accountName,
     amount,
-    content: orderCode,
+    content: transferContent,
     emvPayload,
     qrDataUrl,
   };

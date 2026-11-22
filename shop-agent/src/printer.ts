@@ -148,8 +148,8 @@ Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Drawing.Printing
 
 $data = Get-Content -Path '${tmpJson.replace(/'/g, "''")}' -Raw -Encoding UTF8 | ConvertFrom-Json
-$paperWidth = if ($data.paperMm -eq 58) { 220 } else { 300 }
-$marginX = 8
+$paperWidth = if ($data.paperMm -eq 58) { 188 } else { 270 }
+$marginX = 4
 $usableW = $paperWidth - ($marginX * 2)
 
 $fontNormal = New-Object System.Drawing.Font("Consolas", 8.5, [System.Drawing.FontStyle]::Regular)

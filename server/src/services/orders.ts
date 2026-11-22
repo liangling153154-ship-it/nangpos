@@ -114,17 +114,47 @@ function buildTicketPayload(order: OrderDTO, isReprint: boolean): PrintTicketPay
   };
 }
 
+function getVnDayMonth(): string {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    day: '2-digit',
+    month: '2-digit',
+  }).formatToParts(new Date());
+  const dd = parts.find((p) => p.type === 'day')?.value || '01';
+  const mm = parts.find((p) => p.type === 'month')?.value || '01';
+  return `${dd}${mm}`;
+}
+
 async function generateUniqueOrderCode(tx: DbClient): Promise<string> {
-  // Format: NC1234 (NC + 4 digits 1000-9999)
-  for (let attempt = 0; attempt < 25; attempt++) {
-    const num = crypto.randomInt(1000, 10000);
-    const code = `NC${num}`;
+  // Format: NC.DDMM.00n (n = daily sequential ticket number in Vietnam timezone, e.g. NC.2211.001)
+  const ddmm = getVnDayMonth();
+  const prefix = `NC.${ddmm}.`;
+  const latest = await tx.query<{ order_code: string }>(
+    `SELECT order_code FROM orders
+     WHERE order_code LIKE $1
+     ORDER BY id DESC
+     LIMIT 1`,
+    [`${prefix}%`]
+  );
+
+  let nextSeq = 1;
+  if (latest.rows.length > 0) {
+    const tail = latest.rows[0].order_code.slice(prefix.length);
+    const parsed = Number.parseInt(tail, 10);
+    if (Number.isFinite(parsed) && parsed >= 1) {
+      nextSeq = parsed + 1;
+    }
+  }
+
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const seqStr = String(nextSeq + attempt).padStart(3, '0');
+    const code = `${prefix}${seqStr}`;
     const existing = await tx.query('SELECT 1 FROM orders WHERE order_code = $1', [code]);
     if (existing.rows.length === 0) return code;
   }
-  // Fallback if 4-digit space gets saturated over years: NC + 5 digits
-  const num5 = crypto.randomInt(10000, 100000);
-  return `NC${num5}`;
+
+  // Fallback with timestamp tail if extreme burst occurs
+  return `${prefix}${String(Date.now() % 10000).padStart(4, '0')}`;
 }
 
 export async function getShopPauseState(): Promise<ShopPauseState> {
@@ -573,7 +603,7 @@ export async function queueReprint(orderId: number): Promise<PrintJobDTO> {
 
 export async function queueTestPrint(): Promise<PrintJobDTO> {
   const db = getDb();
-  const orderCode = 'NC0000';
+  const orderCode = `NC.${getVnDayMonth()}.000`;
   const payload: PrintTicketPayload = {
     orderCode,
     createdAt: new Date().toISOString(),

@@ -236,7 +236,7 @@ async function run() {
     assert.equal(codRes.status, 201);
     const codData = await codRes.json();
     const codOrder = codData.order;
-    assert.match(codOrder.orderCode, /^NC\d{4}$/);
+    assert.match(codOrder.orderCode, /^NC\.\d{4}\.001$/, `Expected NC.DDMM.001, got ${codOrder.orderCode}`);
     assert.equal(codData.message, 'Quán sẽ gọi lại xác nhận');
     assert.equal(codOrder.totalAmount, 73000 + 90000);
     assert.equal(codOrder.status, 'pending_shop');
@@ -309,9 +309,12 @@ async function run() {
     assert.equal(qrOrder.status, 'awaiting_payment');
     assert.equal(qrOrder.paymentStatus, 'unpaid');
     assert.ok(qrOrder.vietqr, 'Should return VietQR object');
+    assert.match(qrOrder.orderCode, /^NC\.\d{4}\.002$/, `Expected sequential NC.DDMM.002, got ${qrOrder.orderCode}`);
+    const expectedTransferContent = qrOrder.orderCode.replace(/\./g, '');
+    assert.equal(qrOrder.vietqr.content, expectedTransferContent, 'VietQR transfer content should be dot-free NC+DDMM+00n');
     assert.ok(qrOrder.vietqr.emvPayload.includes('A000000727'), 'Valid NAPAS AID');
     assert.ok(qrOrder.vietqr.emvPayload.includes('970418'), 'Valid BIDV BIN');
-    assert.ok(qrOrder.vietqr.emvPayload.includes(qrOrder.orderCode), 'Transfer content = orderCode');
+    assert.ok(qrOrder.vietqr.emvPayload.includes(expectedTransferContent), 'Transfer content = dot-free orderCode');
     assert.ok(qrOrder.vietqr.qrDataUrl.startsWith('data:image/png;base64,'));
 
     // Ensure unpaid transfer was NOT printed prematurely
@@ -484,10 +487,11 @@ async function run() {
       },
       body: JSON.stringify({
         id: 987654,
+        code: spOrder.vietqr.content,
         transferType: 'in',
         transferAmount: spOrder.totalAmount,
-        content: `KHACH CHUYEN KHOAN ${spOrder.orderCode}`,
-        referenceCode: 'FT2611210001',
+        content: `BIDV IBFT ${spOrder.vietqr.content} CHUYEN TIEN`,
+        referenceCode: 'FT2611220001',
       }),
     });
     assert.equal(sepayHookRes.status, 200);

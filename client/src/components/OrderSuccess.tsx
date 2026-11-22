@@ -120,7 +120,7 @@ export function OrderSuccess({ order: initialOrder, onClose }: OrderSuccessProps
                       Quét mã VietQR để chuyển khoản
                     </div>
                     <div style={{ fontSize: 13, color: 'var(--ink-muted)', marginTop: 2 }}>
-                      Giữ nguyên nội dung <strong>{order.orderCode}</strong> để quán xác nhận nhanh
+                      Giữ nguyên nội dung <strong>{order.vietqr?.content || order.orderCode}</strong> để quán xác nhận nhanh
                     </div>
                   </div>
 

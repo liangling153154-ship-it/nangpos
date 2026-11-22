@@ -69,16 +69,26 @@ webhooksRouter.post('/sepay', async (req, res, next) => {
       return;
     }
 
-    // Check SePay's extracted `code` field first, then scan content/description tolerating concatenated bank refs
+    // Check SePay's extracted `code` field first, then scan content/description.
+    // Supports BOTH new daily format (NC.DDMM.00n / NC2211001 / NC 2211 001) and legacy NC1234.
     const text = `${body.code || ''} ${body.content || ''} ${body.description || ''}`;
-    const codeMatch = text.match(/(?<![A-Z])NC(\d{4,6})(?!\d)/i);
-    if (!codeMatch) {
+    let orderCode: string | null = null;
+
+    const dailyMatch = text.match(/(?<![A-Z])NC[.\s-]?(\d{2})(\d{2})[.\s-]?(\d{3,5})(?!\d)/i);
+    if (dailyMatch) {
+      orderCode = `NC.${dailyMatch[1]}${dailyMatch[2]}.${dailyMatch[3]}`;
+    } else {
+      const legacyMatch = text.match(/(?<![A-Z])NC(\d{4,6})(?!\d)/i);
+      if (legacyMatch) {
+        orderCode = `NC${legacyMatch[1]}`;
+      }
+    }
+
+    if (!orderCode) {
       console.log(`[SePay] Ignored: no NC order code found in "${text}"`);
       res.json({ success: true, ignored: true, reason: 'No NC order code found' });
       return;
     }
-
-    const orderCode = `NC${codeMatch[1]}`;
     const order = await getOrderByCode(orderCode);
     if (!order) {
       res.json({ success: true, ignored: true, reason: `Order ${orderCode} not found` });

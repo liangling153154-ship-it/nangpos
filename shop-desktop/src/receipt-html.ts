@@ -37,12 +37,14 @@ function escapeHtml(s: string): string {
 }
 
 /**
- * Crisp 58mm / 80mm thermal receipt HTML with 100% Vietnamese Unicode typography.
- * Printed silently via hidden Electron BrowserWindow.webContents.print({ silent: true }).
+ * Crisp 58mm / 80mm (K58 / K80) thermal receipt HTML with 100% Vietnamese Unicode typography.
+ * Calibrated for real K80 thermal print heads (72mm printable width -> 66mm safe content box,
+ * left-anchored so right-edge totals/prices NEVER clip, with bold thermal-dark ink).
  */
 export function buildReceiptHtml(ticket: PrintTicketPayload, paperMm: 58 | 80): string {
-  const widthMm = paperMm === 58 ? 54 : 74;
-  const baseFontPx = paperMm === 58 ? 11 : 12.5;
+  const pageWidthMm = paperMm === 58 ? 48 : 72;
+  const contentWidthMm = paperMm === 58 ? 45 : 66;
+  const baseFontPx = paperMm === 58 ? 11 : 12;
 
   const badgeTitle = ticket.isTest
     ? '*** PHIẾU IN THỬ ***'
@@ -57,7 +59,7 @@ export function buildReceiptHtml(ticket: PrintTicketPayload, paperMm: 58 | 80): 
            <div class="cod-sub">(Chưa gồm phí ship)</div>
          </div>`
       : ticket.paymentStatus === 'paid'
-        ? `<div class="paid-box">CHUYỂN KHOẢN · ĐÃ NHẬN TIỀN<br><small>(Không thu tiền đồ uống)</small></div>`
+        ? `<div class="paid-box">CHUYỂN KHOẢN · ĐÃ NHẬN TIỀN<div class="paid-sub">(Không thu tiền đồ uống)</div></div>`
         : `<div class="paid-box">CHUYỂN KHOẢN · CHỜ XÁC NHẬN TIỀN</div>`;
 
   const itemsHtml = ticket.items
@@ -92,60 +94,69 @@ export function buildReceiptHtml(ticket: PrintTicketPayload, paperMm: 58 | 80): 
 <meta charset="utf-8" />
 <style>
   @page {
-    size: ${paperMm}mm auto;
+    size: ${pageWidthMm}mm auto;
     margin: 0;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    width: ${widthMm}mm;
-    margin: 0 auto;
-    padding: 3mm 1.5mm 6mm;
-    font-family: 'Segoe UI', Arial, sans-serif;
-    font-size: ${baseFontPx}px;
-    line-height: 1.35;
-    color: #000;
+  html, body {
+    width: ${contentWidthMm}mm;
+    margin: 0;
+    padding: 0;
     background: #fff;
+    color: #000;
+  }
+  body {
+    padding: 2mm 1.5mm 7mm 1mm;
+    font-family: Arial, Tahoma, 'Segoe UI', sans-serif;
+    font-size: ${baseFontPx}px;
+    font-weight: 600;
+    line-height: 1.38;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
   .center { text-align: center; }
-  .shop-name { font-size: ${baseFontPx + 4}px; font-weight: 800; letter-spacing: 0.04em; }
-  .shop-sub { font-size: ${baseFontPx - 1}px; margin-top: 1px; }
-  .doc-type { font-size: ${baseFontPx + 1}px; font-weight: 700; margin-top: 4px; }
-  .rule-thick { border: 0; border-top: 2px solid #000; margin: 6px 0; }
-  .rule-dash { border: 0; border-top: 1px dashed #000; margin: 6px 0; }
-  .order-code { font-size: ${baseFontPx + 9}px; font-weight: 900; letter-spacing: 0.06em; margin: 2px 0; }
-  .order-time { font-size: ${baseFontPx - 1}px; }
+  .shop-name { font-size: ${baseFontPx + 3.5}px; font-weight: 900; letter-spacing: 0.03em; }
+  .shop-sub { font-size: ${baseFontPx - 0.5}px; font-weight: 600; margin-top: 1px; }
+  .doc-type { font-size: ${baseFontPx + 1}px; font-weight: 800; margin-top: 3px; }
+  .rule-thick { border: 0; border-top: 2px solid #000; margin: 5px 0; }
+  .rule-dash { border: 0; border-top: 1.5px dashed #000; margin: 5px 0; }
+  .order-code { font-size: ${baseFontPx + 6}px; font-weight: 900; letter-spacing: 0.03em; margin: 2px 0; white-space: nowrap; }
+  .order-time { font-size: ${baseFontPx - 0.5}px; font-weight: 600; }
   .cod-box {
     background: #000;
     color: #fff;
     padding: 6px 4px;
     text-align: center;
     margin: 6px 0;
-    border-radius: 3px;
+    border-radius: 2px;
   }
-  .cod-title { font-size: ${baseFontPx + 3}px; font-weight: 900; letter-spacing: 0.02em; }
-  .cod-sub { font-size: ${baseFontPx - 1}px; margin-top: 2px; font-weight: 600; }
+  .cod-title { font-size: ${baseFontPx + 2}px; font-weight: 900; }
+  .cod-sub { font-size: ${baseFontPx - 1}px; margin-top: 2px; font-weight: 700; }
   .paid-box {
-    border: 1.5px solid #000;
+    border: 2px solid #000;
     padding: 5px 4px;
     text-align: center;
+    font-size: ${baseFontPx}px;
     font-weight: 800;
     margin: 6px 0;
   }
-  .cust-row { margin: 2px 0; }
+  .paid-sub { font-size: ${baseFontPx - 1}px; font-weight: 600; margin-top: 1px; }
+  .cust-row { margin: 2px 0; word-break: break-word; }
   .cust-row strong { font-weight: 800; }
-  .items-head { display: flex; justify-content: space-between; font-weight: 800; font-size: ${baseFontPx - 0.5}px; }
-  .item { padding: 4px 0; border-bottom: 1px dotted #555; }
+  .items-head { display: flex; justify-content: space-between; font-weight: 900; font-size: ${baseFontPx - 0.5}px; }
+  .item { padding: 4px 0; border-bottom: 1px dashed #000; }
   .item:last-child { border-bottom: 0; }
-  .item-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; font-weight: 700; }
-  .item-name { flex: 1; }
-  .item-price { white-space: nowrap; font-variant-numeric: tabular-nums; }
-  .item-sub { padding-left: 8px; font-size: ${baseFontPx - 1}px; }
-  .item-note { padding-left: 8px; font-size: ${baseFontPx - 0.5}px; font-weight: 700; margin-top: 1px; }
-  .order-note { border: 1px solid #000; padding: 4px 6px; margin-top: 6px; font-weight: 700; }
-  .total-row { display: flex; justify-content: space-between; font-size: ${baseFontPx + 3}px; font-weight: 900; margin-top: 4px; }
-  .ship-note { font-size: ${baseFontPx - 1}px; margin-top: 2px; }
-  .cod-remind { text-align: center; font-weight: 900; margin-top: 4px; font-size: ${baseFontPx + 1}px; }
-  .footer { text-align: center; font-size: ${baseFontPx - 1}px; margin-top: 8px; }
+  .item-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; font-weight: 800; }
+  .item-name { flex: 1; min-width: 0; word-break: break-word; }
+  .item-price { flex: none; white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
+  .item-sub { padding-left: 6px; font-size: ${baseFontPx - 1}px; font-weight: 600; }
+  .item-note { padding-left: 6px; font-size: ${baseFontPx - 0.5}px; font-weight: 800; margin-top: 2px; }
+  .order-note { border: 1.5px solid #000; padding: 4px 6px; margin-top: 6px; font-weight: 800; word-break: break-word; }
+  .total-row { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; font-size: ${baseFontPx + 2.5}px; font-weight: 900; margin-top: 4px; }
+  .total-row span:last-child { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .ship-note { font-size: ${baseFontPx - 0.5}px; font-weight: 600; margin-top: 2px; }
+  .cod-remind { text-align: center; font-weight: 900; margin-top: 5px; font-size: ${baseFontPx + 1}px; }
+  .footer { text-align: center; font-size: ${baseFontPx - 0.5}px; font-weight: 600; margin-top: 7px; }
 </style>
 </head>
 <body>

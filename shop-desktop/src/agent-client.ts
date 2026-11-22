@@ -329,10 +329,18 @@ export class DesktopAgentClient extends EventEmitter {
 
   async triggerLocalTestPrint(): Promise<{ outputPath?: string }> {
     const cfg = this.getConfig();
-    this.pushLog('info', 'Đang in phiếu thử trực tiếp...');
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      day: '2-digit',
+      month: '2-digit',
+    }).formatToParts(new Date());
+    const ddmm = `${parts.find((p) => p.type === 'day')?.value || '01'}${parts.find((p) => p.type === 'month')?.value || '01'}`;
+    const testCode = `NC.${ddmm}.000`;
+
+    this.pushLog('info', `Đang in phiếu thử ${testCode} trực tiếp...`);
     const res = await printDesktopReceipt(
       {
-        orderCode: 'NC8888',
+        orderCode: testCode,
         createdAt: new Date().toISOString(),
         isReprint: false,
         isTest: true,
@@ -367,7 +375,7 @@ export class DesktopAgentClient extends EventEmitter {
     );
     this.pushLog(
       'success',
-      `Đã in phiếu thử NC8888 thành công${res.outputPath ? ` (${res.outputPath})` : ''}!`
+      `Đã in phiếu thử ${testCode} thành công${res.outputPath ? ` (${res.outputPath})` : ''}!`
     );
     return res;
   }

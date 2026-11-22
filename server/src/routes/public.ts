@@ -95,7 +95,7 @@ publicRouter.post('/orders', async (req, res, next) => {
 publicRouter.get('/orders/:orderCode', async (req, res, next) => {
   try {
     const code = (req.params.orderCode || '').trim().toUpperCase();
-    if (!/^NC\d{4,6}$/.test(code)) {
+    if (!/^(NC\.\d{4}\.\d{3,5}|NC\d{4,9})$/.test(code)) {
       res.status(400).json({ error: 'Mã đơn hàng không hợp lệ.' });
       return;
     }
