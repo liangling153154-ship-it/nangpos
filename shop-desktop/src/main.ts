@@ -15,7 +15,7 @@ import {
 import { ConfigStore, type DesktopConfig } from './config-store';
 import { PrintedJournal } from './journal';
 import { DesktopAgentClient } from './agent-client';
-import { APP_BUILD_DATE, APP_VERSION, APP_VERSION_LABEL } from '../../shared/version';
+import { APP_BUILD_DATE, APP_VERSION, APP_VERSION_LABEL } from './version';
 
 // Guarantee 10-second speaker alert NEVER gets blocked by browser autoplay policy!
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');

@@ -26,7 +26,7 @@ import {
 } from '../services/orders.js';
 import { sendNtfyNotification } from '../services/ntfy.js';
 import { realtimeHub } from '../services/ws.js';
-import { APP_BUILD_DATE, APP_VERSION } from '../../../shared/version.js';
+import { APP_BUILD_DATE, APP_VERSION } from '../version.js';
 
 export const adminRouter = Router();
 

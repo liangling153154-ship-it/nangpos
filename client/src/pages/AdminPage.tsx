@@ -30,7 +30,7 @@ import {
   orderStatusLabel,
 } from '../lib/format';
 import { playAdminNewOrderSound } from '../lib/sound';
-import { APP_BUILD_DATE, APP_VERSION_LABEL } from '../../../shared/version';
+import { APP_BUILD_DATE, APP_VERSION_LABEL } from '../version';
 import {
   BellIcon,
   BellOffIcon,

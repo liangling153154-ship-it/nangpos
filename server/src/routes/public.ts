@@ -7,7 +7,7 @@ import {
   HttpError,
 } from '../services/orders.js';
 import { getDb } from '../db/index.js';
-import { APP_BUILD_DATE, APP_VERSION } from '../../../shared/version.js';
+import { APP_BUILD_DATE, APP_VERSION } from '../version.js';
 
 const orderItemSchema = z.object({
   menuItemId: z.number().int().positive(),

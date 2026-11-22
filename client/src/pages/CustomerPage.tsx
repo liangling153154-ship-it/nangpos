@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MenuItemDTO, MenuResponse, OrderDTO } from '../../../shared/types';
 import { fetchCustomerOrder, fetchMenu } from '../lib/api';
 import { formatVnd, normalizeSearch } from '../lib/format';
-import { APP_VERSION_LABEL } from '../../../shared/version';
+import { APP_VERSION_LABEL } from '../version';
 import { CartDrawer } from '../components/CartDrawer';
 import { DrinkSheet, type CartEntry } from '../components/DrinkSheet';
 import { OrderSuccess } from '../components/OrderSuccess';
