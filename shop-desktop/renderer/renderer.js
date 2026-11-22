@@ -4,6 +4,8 @@
 
   const connDot = document.getElementById('conn-dot');
   const connText = document.getElementById('conn-text');
+  const versionPill = document.getElementById('app-version-pill');
+  const settingsHeading = document.getElementById('settings-heading');
   const printerText = document.getElementById('printer-text');
   const webview = document.getElementById('admin-webview');
   const unconfiguredView = document.getElementById('unconfigured-view');
@@ -290,6 +292,16 @@
   api.getInitialState().then((init) => {
     currentConfig = init.config;
     audioUrls = init.audioUrls;
+    if (init.versionLabel) {
+      if (versionPill) {
+        versionPill.textContent = init.versionLabel;
+        versionPill.title = `Phiên bản ${init.versionLabel} (${init.buildDate || ''})`;
+      }
+      if (settingsHeading) {
+        settingsHeading.textContent = `Cài đặt Quầy Nhận Đơn & Máy In · ${init.versionLabel}`;
+      }
+      document.title = `Nâng Café — Quầy Nhận Đơn ${init.versionLabel}`;
+    }
     renderConnectionState(init.connectionState);
     renderPrinterSummary(init.config);
     renderPrintersDropdown(init.printers, init.config.printerName);

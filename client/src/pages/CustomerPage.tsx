@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MenuItemDTO, MenuResponse, OrderDTO } from '../../../shared/types';
 import { fetchCustomerOrder, fetchMenu } from '../lib/api';
 import { formatVnd, normalizeSearch } from '../lib/format';
+import { APP_VERSION_LABEL } from '../../../shared/version';
 import { CartDrawer } from '../components/CartDrawer';
 import { DrinkSheet, type CartEntry } from '../components/DrinkSheet';
 import { OrderSuccess } from '../components/OrderSuccess';
@@ -526,9 +527,14 @@ export function CustomerPage() {
                 <strong>Nâng Café</strong> · 075 tổ 10, P. Sông Hiến, Thục Phán, Cao Bằng · Mở cửa
                 7:00 — 22:00. Đá hay nóng cùng một giá; phí ship quán báo lại khi gọi xác nhận.
               </p>
-              <a href="/admin" className="footer-admin-link">
-                Trang quản lý dành cho quán
-              </a>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <a href="/admin" className="footer-admin-link">
+                  Trang quản lý dành cho quán
+                </a>
+                <span style={{ fontSize: 12, color: 'var(--ink-muted)' }} className="tabular">
+                  · {APP_VERSION_LABEL}
+                </span>
+              </div>
             </footer>
           </>
         )}

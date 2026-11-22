@@ -7,6 +7,7 @@ import {
   HttpError,
 } from '../services/orders.js';
 import { getDb } from '../db/index.js';
+import { APP_BUILD_DATE, APP_VERSION } from '../../../shared/version.js';
 
 const orderItemSchema = z.object({
   menuItemId: z.number().int().positive(),
@@ -54,7 +55,13 @@ publicRouter.get('/health', async (_req, res) => {
   try {
     const db = getDb();
     await db.query('SELECT 1');
-    res.json({ ok: true, db: db.kind, time: new Date().toISOString() });
+    res.json({
+      ok: true,
+      version: APP_VERSION,
+      buildDate: APP_BUILD_DATE,
+      db: db.kind,
+      time: new Date().toISOString(),
+    });
   } catch (err) {
     res.status(503).json({ ok: false, error: 'Database unavailable' });
   }

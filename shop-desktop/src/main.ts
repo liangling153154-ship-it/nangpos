@@ -15,6 +15,7 @@ import {
 import { ConfigStore, type DesktopConfig } from './config-store';
 import { PrintedJournal } from './journal';
 import { DesktopAgentClient } from './agent-client';
+import { APP_BUILD_DATE, APP_VERSION, APP_VERSION_LABEL } from '../../shared/version';
 
 // Guarantee 10-second speaker alert NEVER gets blocked by browser autoplay policy!
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
@@ -91,7 +92,7 @@ app.whenReady().then(() => {
     minWidth: 960,
     minHeight: 620,
     show: !startMinimized,
-    title: 'Nâng Café — Quầy Nhận Đơn',
+    title: `Nâng Café — Quầy Nhận Đơn ${APP_VERSION_LABEL}`,
     icon: appIcon,
     backgroundColor: '#0B4A53',
     webPreferences: {
@@ -142,7 +143,7 @@ app.whenReady().then(() => {
           : 'Trạng thái: Đang kết nối lại...';
 
     const menu = Menu.buildFromTemplate([
-      { label: 'Nâng Café — Quầy Nhận Đơn', enabled: false },
+      { label: `Nâng Café — Quầy Nhận Đơn (${APP_VERSION_LABEL})`, enabled: false },
       { label: stateLabel, enabled: false },
       { type: 'separator' },
       {
@@ -248,6 +249,9 @@ app.whenReady().then(() => {
   ipcMain.handle('desktop:get-initial', async () => {
     const printers = mainWindow ? await mainWindow.webContents.getPrintersAsync() : [];
     return {
+      version: APP_VERSION,
+      versionLabel: APP_VERSION_LABEL,
+      buildDate: APP_BUILD_DATE,
       config: configStore.get(),
       connectionState: agent.getState(),
       logs: agent.getLogs(),

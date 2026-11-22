@@ -13,6 +13,9 @@ export interface AlarmEvent {
 contextBridge.exposeInMainWorld('nangDesktop', {
   getInitialState: () =>
     ipcRenderer.invoke('desktop:get-initial') as Promise<{
+      version: string;
+      versionLabel: string;
+      buildDate: string;
       config: DesktopConfig;
       connectionState: ConnectionState;
       logs: ActivityLogEntry[];

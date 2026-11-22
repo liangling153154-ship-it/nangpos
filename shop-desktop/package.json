@@ -1,6 +1,6 @@
 {
   "name": "nang-cafe-desktop",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Nang Cafe Cao Bang",
   "private": true,
   "description": "Nâng Café — App Windows trực nhận đơn ship, tự phát loa 10 giây và tự in phiếu nhiệt không cần hỏi",
@@ -57,7 +57,7 @@
       "shortcutName": "Nang Cafe - Quay Nhan Don"
     },
     "portable": {
-      "artifactName": "NangCafe-QuayNhanDon-Portable.exe"
+      "artifactName": "NangCafe-QuayNhanDon-v${version}-Portable.exe"
     }
   }
 }

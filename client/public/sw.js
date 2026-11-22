@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nang-cafe-v1';
+const CACHE_NAME = 'nang-cafe-v1.1.0';
 const STATIC_ASSETS = [
   '/manifest.webmanifest',
   '/fonts/fonts.css',

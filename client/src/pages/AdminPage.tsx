@@ -30,6 +30,7 @@ import {
   orderStatusLabel,
 } from '../lib/format';
 import { playAdminNewOrderSound } from '../lib/sound';
+import { APP_BUILD_DATE, APP_VERSION_LABEL } from '../../../shared/version';
 import {
   BellIcon,
   BellOffIcon,
@@ -406,17 +407,18 @@ export function AdminPage() {
             {loggingIn ? 'Đang đăng nhập...' : 'Đăng nhập'}
           </button>
 
-          <a
-            href="/"
-            style={{
-              textAlign: 'center',
-              fontSize: 13,
-              color: 'var(--ink-muted)',
-              textDecoration: 'underline',
-            }}
-          >
-            Quay lại trang đặt món của khách
-          </a>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12.5, color: 'var(--ink-muted)' }}>
+            <a
+              href="/"
+              style={{
+                color: 'var(--ink-muted)',
+                textDecoration: 'underline',
+              }}
+            >
+              Quay lại trang đặt món của khách
+            </a>
+            <span className="tabular">{APP_VERSION_LABEL}</span>
+          </div>
         </form>
       </div>
     );
@@ -436,6 +438,9 @@ export function AdminPage() {
               className="admin-logo-sm"
             />
             <h1 className="admin-page-title">Quản lý đơn ship</h1>
+            <span className="indicator-pill tabular" title={`Ngày cập nhật: ${APP_BUILD_DATE}`}>
+              {APP_VERSION_LABEL}
+            </span>
           </div>
 
           <div className="admin-status-cluster">
@@ -881,6 +886,12 @@ export function AdminPage() {
             <section className="settings-panel">
               <h2 className="settings-title">Máy tính quán, Máy in & Thông báo</h2>
               <div className="kv-list">
+                <div className="kv-row">
+                  <span>Phiên bản hệ thống</span>
+                  <strong className="tabular">
+                    {sysInfo?.version ? `v${sysInfo.version}` : APP_VERSION_LABEL} ({sysInfo?.buildDate || APP_BUILD_DATE})
+                  </strong>
+                </div>
                 <div className="kv-row">
                   <span>Máy tính quán (Shop Agent)</span>
                   <strong style={{ color: agents.length > 0 ? 'var(--success)' : 'var(--danger)' }}>

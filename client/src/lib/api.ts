@@ -135,6 +135,8 @@ export function updateShopPause(
 }
 
 export interface AdminSystemInfo {
+  version: string;
+  buildDate: string;
   agents: AgentPresence[];
   pendingPrintCount: number;
   vietqrConfigured: boolean;

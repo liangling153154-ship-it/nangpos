@@ -26,6 +26,7 @@ import {
 } from '../services/orders.js';
 import { sendNtfyNotification } from '../services/ntfy.js';
 import { realtimeHub } from '../services/ws.js';
+import { APP_BUILD_DATE, APP_VERSION } from '../../../shared/version.js';
 
 export const adminRouter = Router();
 
@@ -236,6 +237,8 @@ adminRouter.get('/system', async (_req, res, next) => {
   try {
     const pendingJobs = await getPendingPrintJobs();
     res.json({
+      version: APP_VERSION,
+      buildDate: APP_BUILD_DATE,
       agents: realtimeHub.getOnlineAgents(),
       pendingPrintCount: pendingJobs.length,
       vietqrConfigured: Boolean(config.vietqr.accountNo),
