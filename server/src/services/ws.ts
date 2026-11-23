@@ -14,6 +14,7 @@ import type {
   PrintJobDTO,
   ShopPauseState,
 } from '../../../shared/types.js';
+import { enrichPrintJobForAgent } from './receipt-renderer.js';
 
 interface TrackedAgent {
   ws: WebSocket;
@@ -215,7 +216,8 @@ class RealtimeHub {
   }
 
   pushPrintJobToAgents(job: PrintJobDTO): number {
-    const str = JSON.stringify({ type: 'agent:print_job', job });
+    const enriched = enrichPrintJobForAgent(job);
+    const str = JSON.stringify({ type: 'agent:print_job', job: enriched });
     let delivered = 0;
     for (const { ws } of this.agents.values()) {
       if (ws.readyState === WebSocket.OPEN) {
@@ -227,7 +229,8 @@ class RealtimeHub {
   }
 
   pushPendingJobsToAgent(ws: WebSocket, jobs: PrintJobDTO[]): void {
-    this.send(ws, { type: 'agent:pending_jobs', jobs });
+    const enriched = jobs.map(enrichPrintJobForAgent);
+    this.send(ws, { type: 'agent:pending_jobs', jobs: enriched });
   }
 
   notifyAgentsNewOrderAlert(order: OrderDTO): void {
@@ -237,6 +240,10 @@ class RealtimeHub {
       paymentMethod: order.paymentMethod,
       status: order.status,
       totalAmount: order.totalAmount,
+      // Server-controlled directive: unpaid VietQR orders stay quiet until money arrives
+      logLevel: 'info',
+      logMessage: `Đơn ${order.orderCode} đang chờ khách chuyển khoản VietQR (tự nhận đơn & in khi tiền về).`,
+      alarm: { play: false },
     });
     for (const { ws } of this.agents.values()) {
       if (ws.readyState === WebSocket.OPEN) {

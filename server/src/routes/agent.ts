@@ -7,6 +7,10 @@ import {
   HttpError,
   recordPrintJobFailure,
 } from '../services/orders.js';
+import {
+  buildServerTestTicket,
+  enrichPrintJobForAgent,
+} from '../services/receipt-renderer.js';
 
 export const agentRouter = Router();
 
@@ -14,11 +18,15 @@ agentRouter.use(requireShopAgent);
 
 agentRouter.get('/pending-jobs', async (_req, res, next) => {
   try {
-    const jobs = await getPendingPrintJobs();
+    const jobs = (await getPendingPrintJobs()).map(enrichPrintJobForAgent);
     res.json({ jobs });
   } catch (err) {
     next(err);
   }
+});
+
+agentRouter.get('/test-ticket', (_req, res) => {
+  res.json({ ticket: buildServerTestTicket() });
 });
 
 agentRouter.post('/print-jobs/:id/ack', async (req, res, next) => {

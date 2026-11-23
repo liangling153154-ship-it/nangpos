@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
-import { BrowserWindow } from 'electron';
 import type { PrintTicketPayload } from '../../shared/types';
 import type { DesktopConfig } from './config-store';
 import {
@@ -9,6 +8,45 @@ import {
   buildReceiptPlainText,
   stripVietnamese,
 } from './receipt-html';
+
+function clampPrintableMm(val: number | undefined, fallback: number): number {
+  if (typeof val === 'number' && Number.isFinite(val) && val >= 40 && val <= 80) {
+    return val;
+  }
+  return fallback;
+}
+
+function sanitizeServerReceiptHtml(html: string): string {
+  // Defense-in-depth: strip any <script> blocks from server-rendered receipt HTML
+  return html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+}
+
+/**
+ * Resolves receipt HTML, plain text, and printable head width.
+ * Prefers server-rendered templates pushed from Railway so receipt styling/copy can
+ * be updated anytime WITHOUT rebuilding the Windows .exe; falls back locally if absent.
+ */
+export function resolveReceiptAssets(
+  ticket: PrintTicketPayload,
+  paperMm: 58 | 80
+): { html: string; plainText: string; printableMm: number; fromServer: boolean } {
+  const rendered = ticket.rendered;
+  const serverHtml = paperMm === 58 ? rendered?.html58 : rendered?.html80;
+  const serverText = paperMm === 58 ? rendered?.text58 : rendered?.text80;
+  const serverPrintableMm = paperMm === 58 ? rendered?.printableMm58 : rendered?.printableMm80;
+
+  const hasServerHtml = typeof serverHtml === 'string' && serverHtml.trim().length > 0;
+  const html = hasServerHtml
+    ? sanitizeServerReceiptHtml(serverHtml)
+    : buildReceiptHtml(ticket, paperMm);
+  const plainText =
+    typeof serverText === 'string' && serverText.trim().length > 0
+      ? serverText
+      : buildReceiptPlainText(ticket, paperMm);
+  const printableMm = clampPrintableMm(serverPrintableMm, paperMm === 58 ? 48 : 72);
+
+  return { html, plainText, printableMm, fromServer: hasServerHtml };
+}
 
 export async function printDesktopReceipt(
   ticket: PrintTicketPayload,
@@ -33,11 +71,12 @@ async function printMock(
   jobId: number | string,
   mockDir: string
 ): Promise<{ outputPath: string }> {
+  const { html, plainText } = resolveReceiptAssets(ticket, paperMm);
   fs.mkdirSync(mockDir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const base = path.join(mockDir, `${ticket.orderCode}-job${jobId}-${stamp}`);
-  fs.writeFileSync(`${base}.txt`, buildReceiptPlainText(ticket, paperMm) + '\n', 'utf8');
-  fs.writeFileSync(`${base}.html`, buildReceiptHtml(ticket, paperMm), 'utf8');
+  fs.writeFileSync(`${base}.txt`, plainText + '\n', 'utf8');
+  fs.writeFileSync(`${base}.html`, html, 'utf8');
   return { outputPath: `${base}.html` };
 }
 
@@ -49,9 +88,11 @@ async function printElectronSilent(
   ticket: PrintTicketPayload,
   cfg: DesktopConfig
 ): Promise<void> {
-  const html = buildReceiptHtml(ticket, cfg.paperMm);
+  // Lazy require so pure Node smoke tests can import resolveReceiptAssets without Electron runtime
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { BrowserWindow } = require('electron') as typeof import('electron');
+  const { html, printableMm } = resolveReceiptAssets(ticket, cfg.paperMm);
 
-  const printableMm = cfg.paperMm === 58 ? 48 : 72;
   const printWin = new BrowserWindow({
     show: false,
     width: cfg.paperMm === 58 ? 190 : 272,
@@ -61,6 +102,14 @@ async function printElectronSilent(
       contextIsolation: true,
       nodeIntegration: false,
     },
+  });
+
+  // Lock down offscreen print window: block all navigations and popups
+  printWin.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  printWin.webContents.on('will-navigate', (ev, targetUrl) => {
+    if (!targetUrl.startsWith('data:text/html')) {
+      ev.preventDefault();
+    }
   });
 
   try {
@@ -113,7 +162,7 @@ async function printElectronSilent(
  */
 function printEscPosTcp(ticket: PrintTicketPayload, cfg: DesktopConfig): Promise<void> {
   return new Promise((resolve, reject) => {
-    const plain = buildReceiptPlainText(ticket, cfg.paperMm);
+    const { plainText: plain } = resolveReceiptAssets(ticket, cfg.paperMm);
     const chunks: Buffer[] = [Buffer.from([0x1b, 0x40])]; // ESC @ init
 
     for (const rawLine of plain.split('\n')) {

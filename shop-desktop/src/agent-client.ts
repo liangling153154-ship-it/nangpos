@@ -169,11 +169,28 @@ export class DesktopAgentClient extends EventEmitter {
             }
           }
         } else if (msg.type === 'agent:order_alert') {
-          if (msg.paymentMethod === 'bank_transfer' && msg.status === 'awaiting_payment') {
+          if (typeof msg.logMessage === 'string' && msg.logMessage) {
+            const level: ActivityLogEntry['level'] =
+              msg.logLevel === 'warn' || msg.logLevel === 'success' || msg.logLevel === 'error'
+                ? msg.logLevel
+                : 'info';
+            this.pushLog(level, msg.logMessage);
+          } else if (msg.paymentMethod === 'bank_transfer' && msg.status === 'awaiting_payment') {
             this.pushLog(
               'info',
               `Đơn ${msg.orderCode} đang chờ khách chuyển khoản VietQR (tự nhận đơn & in khi tiền về).`
             );
+          }
+
+          // Obey server-controlled alarm directive (allows changing alert policy on Railway without updating .exe)
+          if (msg.alarm?.play === true) {
+            this.emit('alarm', {
+              kind: msg.alarm.kind === 'transfer_alert' ? 'transfer_alert' : 'new_order',
+              orderCode: msg.orderCode || 'NC',
+              title: msg.alarm.title || `Đơn mới ${msg.orderCode || ''}`.trim(),
+              body: msg.alarm.body || 'Có đơn hàng mới trên hệ thống Nâng Café.',
+              durationSeconds: msg.alarm.durationSeconds,
+            });
           }
         }
       } catch {
@@ -284,13 +301,18 @@ export class DesktopAgentClient extends EventEmitter {
 
           const cfg = this.getConfig();
 
-          // Trigger 10-second speaker alarm & desktop notification for new paid orders (skip alarm on manual reprint)
-          if (job.jobType !== 'reprint') {
+          // Obey server alarm directive when present; fall back to local default (play except reprint)
+          const serverAlarm = job.payload.alarm;
+          const shouldRing = serverAlarm ? serverAlarm.play === true : job.jobType !== 'reprint';
+          if (shouldRing) {
             this.emit('alarm', {
-              kind: 'new_order',
+              kind: serverAlarm?.kind === 'transfer_alert' ? 'transfer_alert' : 'new_order',
               orderCode: job.orderCode,
-              title: `Đơn mới ${job.orderCode}`,
-              body: `${job.payload.customerName} · Đã chuyển khoản — Đã tự nhận đơn & đang in phiếu!`,
+              title: serverAlarm?.title || `Đơn mới ${job.orderCode}`,
+              body:
+                serverAlarm?.body ||
+                `${job.payload.customerName} · Đã chuyển khoản — Đã tự nhận đơn & đang in phiếu!`,
+              durationSeconds: serverAlarm?.durationSeconds,
             });
           }
 
@@ -323,25 +345,47 @@ export class DesktopAgentClient extends EventEmitter {
 
   async triggerLocalTestPrint(): Promise<{ outputPath?: string }> {
     const cfg = this.getConfig();
-    const parts = new Intl.DateTimeFormat('en-GB', {
-      timeZone: 'Asia/Ho_Chi_Minh',
-      day: '2-digit',
-      month: '2-digit',
-    }).formatToParts(new Date());
-    const ddmm = `${parts.find((p) => p.type === 'day')?.value || '01'}${parts.find((p) => p.type === 'month')?.value || '01'}`;
-    const testCode = `NC.${ddmm}.000`;
+    let ticket: PrintJobDTO['payload'] | null = null;
+    let fromServer = false;
 
-    this.pushLog('info', `Đang in phiếu thử ${testCode} trực tiếp...`);
-    const res = await printDesktopReceipt(
-      {
-        orderCode: testCode,
+    // Fetch latest K80/K58 test template from Railway when online; fall back locally if offline
+    if (cfg.serverUrl && cfg.agentSecret) {
+      try {
+        const controller = new AbortController();
+        const t = setTimeout(() => controller.abort(), 3000);
+        const res = await fetch(`${cfg.serverUrl}/api/agent/test-ticket`, {
+          headers: { 'x-agent-secret': cfg.agentSecret },
+          signal: controller.signal,
+        });
+        clearTimeout(t);
+        if (res.ok) {
+          const data = (await res.json()) as { ticket?: PrintJobDTO['payload'] };
+          if (data.ticket) {
+            ticket = data.ticket;
+            fromServer = true;
+          }
+        }
+      } catch {
+        // Offline or unreachable — fall back seamlessly to built-in receipt template
+      }
+    }
+
+    if (!ticket) {
+      const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Ho_Chi_Minh',
+        day: '2-digit',
+        month: '2-digit',
+      }).formatToParts(new Date());
+      const ddmm = `${parts.find((p) => p.type === 'day')?.value || '01'}${parts.find((p) => p.type === 'month')?.value || '01'}`;
+      ticket = {
+        orderCode: `NC.${ddmm}.000`,
         createdAt: new Date().toISOString(),
         isReprint: false,
         isTest: true,
         customerName: 'Phiếu in thử — Nâng Café',
         customerPhone: '0912 345 678',
         customerAddress: '075 tổ 10, P. Sông Hiến, Cao Bằng',
-        note: 'Kiểm tra máy in nhiệt & loa 10 giây',
+        note: 'Kiểm tra máy in nhiệt & loa 10 giây (mẫu dự phòng)',
         items: [
           {
             menuItemId: 1,
@@ -362,14 +406,17 @@ export class DesktopAgentClient extends EventEmitter {
         totalAmount: 73000,
         paymentMethod: 'bank_transfer',
         paymentStatus: 'paid',
-      },
-      cfg,
-      'local-test',
-      this.mockDir
+      };
+    }
+
+    this.pushLog(
+      'info',
+      `Đang in phiếu thử ${ticket.orderCode}${fromServer ? ' (mẫu trực tiếp từ Railway)' : ' (mẫu dự phòng)'}...`
     );
+    const res = await printDesktopReceipt(ticket, cfg, 'local-test', this.mockDir);
     this.pushLog(
       'success',
-      `Đã in phiếu thử ${testCode} thành công${res.outputPath ? ` (${res.outputPath})` : ''}!`
+      `Đã in phiếu thử ${ticket.orderCode} thành công${res.outputPath ? ` (${res.outputPath})` : ''}!`
     );
     return res;
   }

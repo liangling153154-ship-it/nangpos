@@ -100,11 +100,15 @@ function enqueuePrintJob(job: PrintJobDTO): void {
           `[Shop Agent] Processing print job #${job.id} (${job.jobType}) for ${job.orderCode}...`
         );
 
-        // Ring bell + Vietnamese "Đơn mới" concurrently with thermal print spooling
-        const soundPromise =
-          job.jobType === 'reprint'
-            ? Promise.resolve()
-            : audio.announceNewOrder('new_order');
+        // Ring bell + Vietnamese "Đơn mới" obeying server alarm directive
+        const shouldRing = job.payload.alarm
+          ? job.payload.alarm.play === true
+          : job.jobType !== 'reprint';
+        const soundPromise = shouldRing
+          ? audio.announceNewOrder(
+              job.payload.alarm?.kind === 'transfer_alert' ? 'transfer_alert' : 'new_order'
+            )
+          : Promise.resolve();
 
         await printReceipt(job.payload, printerCfg, job.id);
 
@@ -194,8 +198,15 @@ function connect(): void {
           }
         }
       } else if (msg.type === 'agent:order_alert') {
-        if (msg.paymentMethod === 'bank_transfer' && msg.status === 'awaiting_payment') {
+        if (typeof msg.logMessage === 'string' && msg.logMessage) {
+          console.log(`[Shop Agent] ${msg.logMessage}`);
+        } else if (msg.paymentMethod === 'bank_transfer' && msg.status === 'awaiting_payment') {
           console.log(`[Shop Agent] Order ${msg.orderCode} awaiting VietQR transfer (auto-accept on payment)`);
+        }
+        if (msg.alarm?.play === true) {
+          audio.announceNewOrder(
+            msg.alarm.kind === 'transfer_alert' ? 'transfer_alert' : 'new_order'
+          );
         }
       }
     } catch (err) {

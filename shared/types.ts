@@ -144,6 +144,23 @@ export interface PrintJobDTO {
   createdAt: string;
 }
 
+export interface ServerReceiptTemplates {
+  html80?: string;
+  html58?: string;
+  text80?: string;
+  text58?: string;
+  printableMm80?: number;
+  printableMm58?: number;
+}
+
+export interface ServerAlarmDirective {
+  play: boolean;
+  kind?: 'new_order' | 'transfer_alert';
+  title?: string;
+  body?: string;
+  durationSeconds?: number;
+}
+
 export interface PrintTicketPayload {
   orderCode: string;
   createdAt: string;
@@ -157,6 +174,8 @@ export interface PrintTicketPayload {
   totalAmount: number;
   paymentMethod: PaymentMethod;
   paymentStatus: PaymentStatus;
+  rendered?: ServerReceiptTemplates;
+  alarm?: ServerAlarmDirective;
 }
 
 export interface AgentPresence {

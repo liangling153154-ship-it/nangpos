@@ -15,6 +15,7 @@ const require = createRequire(import.meta.url);
 const { ConfigStore } = require(path.join(repoRoot, 'shop-desktop/dist/shop-desktop/src/config-store.js'));
 const { PrintedJournal } = require(path.join(repoRoot, 'shop-desktop/dist/shop-desktop/src/journal.js'));
 const { buildReceiptHtml, buildReceiptPlainText } = require(path.join(repoRoot, 'shop-desktop/dist/shop-desktop/src/receipt-html.js'));
+const { resolveReceiptAssets } = require(path.join(repoRoot, 'shop-desktop/dist/shop-desktop/src/printer.js'));
 
 async function run() {
   console.log('=== NÂNG CAFÉ DESKTOP APP SMOKE TEST ===');
@@ -84,7 +85,28 @@ async function run() {
   assert.ok(html.includes('Gọi trước khi giao'));
   const txt = buildReceiptPlainText(sample, 58);
   assert.ok(txt.includes('CHUYỂN KHOẢN · ĐÃ NHẬN TIỀN'));
-  console.log('✓ Thermal receipt HTML (80mm) & text (58mm) Vietnamese formatting OK');
+
+  // 3b. Server-driven receipt template takes priority + strips <script> defensively + offline fallback
+  const fallbackAssets = resolveReceiptAssets(sample, 80);
+  assert.equal(fallbackAssets.fromServer, false);
+  assert.equal(fallbackAssets.printableMm, 72);
+  const serverDrivenAssets = resolveReceiptAssets(
+    {
+      ...sample,
+      rendered: {
+        html80: '<html><body><div>CUSTOM RAILWAY BILL</div><script>alert(1)</script></body></html>',
+        text80: 'CUSTOM SERVER TEXT',
+        printableMm80: 70,
+      },
+    },
+    80
+  );
+  assert.equal(serverDrivenAssets.fromServer, true);
+  assert.ok(serverDrivenAssets.html.includes('CUSTOM RAILWAY BILL'));
+  assert.ok(!serverDrivenAssets.html.includes('<script>'), 'Must defensively strip <script> tags');
+  assert.equal(serverDrivenAssets.plainText, 'CUSTOM SERVER TEXT');
+  assert.equal(serverDrivenAssets.printableMm, 70);
+  console.log('✓ Thermal receipt HTML (80mm), text (58mm) & server-driven template override OK');
 
   // 4. Verify 10-second audio assets exist and have expected size (~480KB for 10s 24kHz 16-bit mono PCM)
   for (const name of ['alert-don-moi-10s.wav', 'alert-chuyen-khoan-10s.wav']) {

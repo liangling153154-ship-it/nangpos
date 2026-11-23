@@ -3,6 +3,7 @@ import { getDb, type DbClient } from '../db/index.js';
 import { config } from '../config.js';
 import { generateOrderVietQr } from './vietqr.js';
 import { notifyPaymentConfirmed } from './ntfy.js';
+import { buildServerTestTicket } from './receipt-renderer.js';
 import { realtimeHub } from './ws.js';
 import type {
   DrinkType,
@@ -638,42 +639,15 @@ export async function queueReprint(orderId: number): Promise<PrintJobDTO> {
 
 export async function queueTestPrint(): Promise<PrintJobDTO> {
   const db = getDb();
-  const orderCode = `NC.${getVnDayMonth()}.000`;
-  const payload: PrintTicketPayload = {
-    orderCode,
-    createdAt: new Date().toISOString(),
-    isReprint: false,
-    isTest: true,
-    customerName: 'Phiếu in thử — Nâng Café',
-    customerPhone: '0900 000 000',
-    customerAddress: '075 tổ 10, P. Sông Hiến, Cao Bằng',
-    note: 'Kiểm tra kết nối máy in nhiệt & loa thông báo',
-    items: [
-      {
-        menuItemId: 1,
-        name: 'Cà phê hạt dẻ',
-        basePrice: 55000,
-        size: 'M',
-        sizeLabel: 'Tiêu chuẩn (M)',
-        sizePrice: 0,
-        ice: 'Đá bình thường',
-        sugar: '70% đường',
-        toppings: [{ slug: 'thach-den', name: 'Thạch đen Cao Bằng', price: 8000 }],
-        quantity: 1,
-        unitPrice: 63000,
-        lineTotal: 63000,
-      },
-    ],
-    totalAmount: 63000,
-    paymentMethod: 'bank_transfer',
-    paymentStatus: 'paid',
-  };
+  const fullTest = buildServerTestTicket();
+  // Store compact base payload in DB; server dynamically attaches latest rendered HTML on dispatch
+  const { rendered: _r, alarm: _a, ...payload } = fullTest;
 
   const jobRes = await db.query(
     `INSERT INTO print_jobs (order_id, order_code, job_type, status, payload, idempotency_key)
      VALUES (NULL, $1, 'test', 'pending', $2::jsonb, $3)
      RETURNING *`,
-    [orderCode, JSON.stringify(payload), `test:${crypto.randomUUID()}`]
+    [payload.orderCode, JSON.stringify(payload), `test:${crypto.randomUUID()}`]
   );
   const job = mapPrintJobRow(jobRes.rows[0]);
   realtimeHub.pushPrintJobToAgents(job);

@@ -230,16 +230,25 @@ app.whenReady().then(() => {
     kind: 'new_order' | 'transfer_alert',
     orderCode: string,
     title: string,
-    body: string
+    body: string,
+    durationSeconds?: number
   ) {
     const cfg = configStore.get();
+    const resolvedSec =
+      typeof durationSeconds === 'number' &&
+      Number.isFinite(durationSeconds) &&
+      durationSeconds >= 3 &&
+      durationSeconds <= 30
+        ? Math.round(durationSeconds)
+        : cfg.alertSeconds;
+
     if (cfg.audioEnabled) {
       mainWindow?.webContents.send('desktop:alarm', {
         kind,
         orderCode,
         title,
         body,
-        durationSec: cfg.alertSeconds,
+        durationSec: resolvedSec,
       });
     }
     if (mainWindow && !mainWindow.isFocused()) {
@@ -270,7 +279,7 @@ app.whenReady().then(() => {
   });
 
   agent.on('alarm', (ev) => {
-    triggerAlarm(ev.kind, ev.orderCode, ev.title, ev.body);
+    triggerAlarm(ev.kind, ev.orderCode, ev.title, ev.body, ev.durationSeconds);
   });
 
   // IPC Handlers

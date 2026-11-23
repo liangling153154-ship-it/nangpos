@@ -438,6 +438,25 @@ async function run() {
     const offCheckData = await offCheckRes.json();
     assert.equal(offCheckData.status, 'accepted', 'Paid order must be auto-accepted even when shop PC is temporarily offline');
 
+    // Verify /api/agent/pending-jobs & /api/agent/test-ticket serve server-rendered K80 HTML + alarm directive
+    const pendingJobsRes = await fetch(`${SERVER_URL}/api/agent/pending-jobs`, {
+      headers: { 'x-agent-secret': AGENT_SECRET },
+    });
+    assert.equal(pendingJobsRes.status, 200);
+    const pendingJobsData = await pendingJobsRes.json();
+    const offPendingJob = pendingJobsData.jobs.find((j) => j.orderCode === offOrder.orderCode);
+    assert.ok(offPendingJob?.payload?.rendered?.html80?.includes('CHUYỂN KHOẢN · ĐÃ NHẬN TIỀN'), 'Pending job must include server-rendered K80 HTML');
+    assert.equal(offPendingJob?.payload?.rendered?.printableMm80, 72);
+    assert.equal(offPendingJob?.payload?.alarm?.play, true, 'Paid initial print job must instruct alarm.play = true');
+
+    const testTicketRes = await fetch(`${SERVER_URL}/api/agent/test-ticket`, {
+      headers: { 'x-agent-secret': AGENT_SECRET },
+    });
+    assert.equal(testTicketRes.status, 200);
+    const testTicketData = await testTicketRes.json();
+    assert.ok(testTicketData.ticket?.rendered?.html80?.includes('Content-Security-Policy'));
+    assert.equal(testTicketData.ticket?.rendered?.printableMm80, 72);
+
     // Bring Shop PC back online -> must catch up & print exactly ONCE
     agentProc = startAgent();
     await waitFor(
@@ -526,12 +545,12 @@ async function run() {
     console.log('✓ TEST 4 PASSED: Reprint + Out-of-stock + Pause mode all verified!');
 
     // =========================================================================
-    // TEST 5: SECURITY HARDENING VERIFICATION (v1.3.0)
+    // TEST 5: SECURITY HARDENING VERIFICATION (v1.4.0)
     // =========================================================================
     // 5a. Security headers & version
     const healthRes = await fetch(`${SERVER_URL}/api/health`);
     const healthJson = await healthRes.json();
-    assert.equal(healthJson.version, '1.3.0', 'Health endpoint should expose version 1.3.0');
+    assert.equal(healthJson.version, '1.4.0', 'Health endpoint should expose version 1.4.0');
     assert.equal(healthRes.headers.get('x-powered-by'), null, 'X-Powered-By must be disabled');
     assert.ok(healthRes.headers.get('content-security-policy'), 'CSP header must be present');
     assert.ok(healthRes.headers.get('permissions-policy'), 'Permissions-Policy header must be present');
