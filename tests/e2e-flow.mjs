@@ -203,9 +203,22 @@ async function run() {
     console.log('✓ Windows Shop Agent connected & visible in Admin dashboard');
 
     // =========================================================================
-    // TEST 1: COD ORDER -> Admin WS -> ntfy -> Shop Agent Print -> Auto-Accept
+    // TEST 1: COD REJECTED (400) + VIETQR TRANSFER -> SEPAY AUTO-ACCEPT -> PRINT
     // =========================================================================
-    const codRes = await fetch(`${SERVER_URL}/api/orders`, {
+    const codRejectRes = await fetch(`${SERVER_URL}/api/orders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        customerName: 'Khách COD cũ',
+        customerPhone: '0912345678',
+        customerAddress: 'Số 24 đường Kim Đồng, P. Hợp Giang, Cao Bằng',
+        paymentMethod: 'cod',
+        items: [{ menuItemId: hatDeItem.id, quantity: 1 }],
+      }),
+    });
+    assert.equal(codRejectRes.status, 400, 'COD orders must be rejected with HTTP 400');
+
+    const order1Res = await fetch(`${SERVER_URL}/api/orders`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -213,7 +226,7 @@ async function run() {
         customerPhone: '0912345678',
         customerAddress: 'Số 24 đường Kim Đồng, P. Hợp Giang, Cao Bằng',
         note: 'Gọi trước khi giao 5 phút',
-        paymentMethod: 'cod',
+        paymentMethod: 'bank_transfer',
         items: [
           {
             menuItemId: hatDeItem.id, // 55k + L(10k) + thach-den(8k) = 73k
@@ -234,64 +247,102 @@ async function run() {
         ],
       }),
     });
-    assert.equal(codRes.status, 201);
-    const codData = await codRes.json();
-    const codOrder = codData.order;
-    assert.match(codOrder.orderCode, /^NC\.\d{4}\.001$/, `Expected NC.DDMM.001, got ${codOrder.orderCode}`);
-    assert.equal(codData.message, 'Quán sẽ gọi lại xác nhận');
-    assert.equal(codOrder.totalAmount, 73000 + 90000);
-    assert.equal(codOrder.status, 'pending_shop');
+    assert.equal(order1Res.status, 201);
+    const order1Data = await order1Res.json();
+    const order1 = order1Data.order;
+    assert.match(order1.orderCode, /^NC\.\d{4}\.001$/, `Expected NC.DDMM.001, got ${order1.orderCode}`);
+    assert.equal(order1.totalAmount, 73000 + 90000);
+    assert.equal(order1.status, 'awaiting_payment');
+    assert.equal(order1.paymentStatus, 'unpaid');
+    assert.ok(order1.vietqr, 'Should return VietQR object');
+    const expectedTransferContent = order1.orderCode.replace(/\./g, '');
+    assert.equal(order1.vietqr.content, expectedTransferContent, 'VietQR transfer content should be dot-free NC+DDMM+00n');
+    assert.ok(order1.vietqr.emvPayload.includes('A000000727'), 'Valid NAPAS AID');
+    assert.ok(order1.vietqr.emvPayload.includes('970418'), 'Valid BIDV BIN');
+    assert.ok(order1.vietqr.qrDataUrl.startsWith('data:image/png;base64,'));
 
-    // Wait for Shop Agent to print & ACK -> auto-accepted!
-    const codReceiptFile = await waitFor(
+    // Ensure unpaid transfer is NOT printed prematurely and does NOT spam ntfy before paying
+    await new Promise((r) => setTimeout(r, 500));
+    const prematureFiles = fs.existsSync(receiptsDir)
+      ? fs.readdirSync(receiptsDir).filter((f) => f.startsWith(order1.orderCode))
+      : [];
+    assert.equal(prematureFiles.length, 0, 'Unpaid transfer must wait for payment before printing');
+    assert.equal(ntfyMessages.length, 0, 'Unpaid transfer must not spam ntfy before payment arrives');
+
+    // Simulate SePay webhook -> MUST immediately auto-accept (status = accepted) + print + ntfy!
+    const sepayHook1Res = await fetch(`${SERVER_URL}/api/webhooks/sepay`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Apikey ${SEPAY_SECRET}`,
+      },
+      body: JSON.stringify({
+        id: 987654,
+        accountNumber: '8800000000',
+        subAccount: '0000123456',
+        code: order1.vietqr.content,
+        transferType: 'in',
+        transferAmount: order1.totalAmount,
+        content: `BIDV IBFT ${order1.vietqr.content} CHUYEN TIEN`,
+        referenceCode: 'FT2611220001',
+      }),
+    });
+    assert.equal(sepayHook1Res.status, 200);
+    const sepayHook1Data = await sepayHook1Res.json();
+    assert.equal(sepayHook1Data.success, true);
+    assert.equal(sepayHook1Data.printQueued, true);
+
+    // Wait for Shop Agent to print & ACK
+    const order1ReceiptFile = await waitFor(
       () => {
         if (!fs.existsSync(receiptsDir)) return null;
-        return fs.readdirSync(receiptsDir).find((f) => f.startsWith(codOrder.orderCode));
+        return fs.readdirSync(receiptsDir).find((f) => f.startsWith(order1.orderCode));
       },
       10000,
       150,
-      'COD receipt file printed'
+      'SePay paid receipt file printed'
     );
-    const codReceiptTxt = fs.readFileSync(path.join(receiptsDir, codReceiptFile), 'utf8');
-    assert.ok(codReceiptTxt.includes(codOrder.orderCode), 'Receipt must include order code');
-    assert.ok(codReceiptTxt.includes('THU TIỀN MẶT'), 'COD receipt must clearly state THU TIỀN MẶT');
-    assert.ok(codReceiptTxt.includes('Cà phê hạt dẻ (L)'), 'Receipt must show size L');
-    assert.ok(codReceiptTxt.includes('Thạch đen Cao Bằng'), 'Receipt must show topping');
-    assert.ok(codReceiptTxt.includes('Ít kem chút'), 'Receipt must show item note');
-    assert.ok(codReceiptTxt.includes('Gọi trước khi giao 5 phút'), 'Receipt must show order note');
-    assert.ok(codReceiptTxt.includes('Nguyễn Minh Anh'), 'Receipt must show customer name');
-    assert.ok(codReceiptTxt.includes('0912345678'), 'Receipt must show phone');
+    const order1ReceiptTxt = fs.readFileSync(path.join(receiptsDir, order1ReceiptFile), 'utf8');
+    assert.ok(order1ReceiptTxt.includes(order1.orderCode), 'Receipt must include order code');
+    assert.ok(order1ReceiptTxt.includes('CHUYỂN KHOẢN · ĐÃ NHẬN TIỀN'), 'Receipt must show paid transfer');
+    assert.ok(!order1ReceiptTxt.includes('THU TIỀN MẶT'), 'Receipt must NOT say THU TIỀN MẶT');
+    assert.ok(order1ReceiptTxt.includes('Cà phê hạt dẻ (L)'), 'Receipt must show size L');
+    assert.ok(order1ReceiptTxt.includes('Thạch đen Cao Bằng'), 'Receipt must show topping');
+    assert.ok(order1ReceiptTxt.includes('Ít kem chút'), 'Receipt must show item note');
+    assert.ok(order1ReceiptTxt.includes('Gọi trước khi giao 5 phút'), 'Receipt must show order note');
+    assert.ok(order1ReceiptTxt.includes('Nguyễn Minh Anh'), 'Receipt must show customer name');
+    assert.ok(order1ReceiptTxt.includes('0912345678'), 'Receipt must show phone');
 
-    // Verify auto-accept on server
+    // Verify auto-accepted & printed on server
     await waitFor(
       async () => {
         const r = await fetch(`${SERVER_URL}/api/admin/orders`, {
           headers: { Cookie: cookieHeader },
         });
         const d = await r.json();
-        const found = d.orders.find((o) => o.orderCode === codOrder.orderCode);
-        return found && found.status === 'accepted' && found.printStatus === 'printed';
+        const found = d.orders.find((o) => o.orderCode === order1.orderCode);
+        return found && found.status === 'accepted' && found.paymentStatus === 'paid' && found.printStatus === 'printed';
       },
       8000,
       150,
-      'COD order auto-accepted after printing'
+      'Transfer order auto-accepted & printed'
     );
 
-    // Verify Admin WS got order:new and ntfy got Vietnamese notification
+    // Verify Admin WS got order:updated (paid+accepted) and ntfy got rich notification
     assert.ok(
-      adminEvents.some((e) => e.type === 'order:new' && e.order.orderCode === codOrder.orderCode),
-      'Admin WS must receive order:new'
+      adminEvents.some((e) => e.type === 'order:updated' && e.order.orderCode === order1.orderCode && e.order.status === 'accepted'),
+      'Admin WS must receive auto-accepted order:updated'
     );
     await waitFor(
-      () => ntfyMessages.some((m) => String(m.title || '').includes(codOrder.orderCode)),
+      () => ntfyMessages.some((m) => String(m.title || '').includes(order1.orderCode) && String(m.message || '').includes('Cà phê hạt dẻ')),
       5000,
       100,
-      'ntfy notification for COD order'
+      'rich ntfy notification for paid order'
     );
-    console.log(`✓ TEST 1 PASSED: COD ${codOrder.orderCode} -> WS -> ntfy -> Printed (THU TIỀN MẶT) -> Auto-accepted`);
+    console.log(`✓ TEST 1 PASSED: COD blocked (400), VietQR ${order1.orderCode} -> SePay auto-accepted -> Printed -> Rich ntfy`);
 
     // =========================================================================
-    // TEST 2: VIETQR TRANSFER -> Awaiting Payment -> Manual Confirm -> Printed
+    // TEST 2: MANUAL BACKUP CONFIRMATION -> IMMEDIATE AUTO-ACCEPT -> PRINTED
     // =========================================================================
     const qrRes = await fetch(`${SERVER_URL}/api/orders`, {
       method: 'POST',
@@ -305,27 +356,10 @@ async function run() {
       }),
     });
     assert.equal(qrRes.status, 201);
-    const qrData = await qrRes.json();
-    const qrOrder = qrData.order;
-    assert.equal(qrOrder.status, 'awaiting_payment');
-    assert.equal(qrOrder.paymentStatus, 'unpaid');
-    assert.ok(qrOrder.vietqr, 'Should return VietQR object');
+    const qrOrder = (await qrRes.json()).order;
     assert.match(qrOrder.orderCode, /^NC\.\d{4}\.002$/, `Expected sequential NC.DDMM.002, got ${qrOrder.orderCode}`);
-    const expectedTransferContent = qrOrder.orderCode.replace(/\./g, '');
-    assert.equal(qrOrder.vietqr.content, expectedTransferContent, 'VietQR transfer content should be dot-free NC+DDMM+00n');
-    assert.ok(qrOrder.vietqr.emvPayload.includes('A000000727'), 'Valid NAPAS AID');
-    assert.ok(qrOrder.vietqr.emvPayload.includes('970418'), 'Valid BIDV BIN');
-    assert.ok(qrOrder.vietqr.emvPayload.includes(expectedTransferContent), 'Transfer content = dot-free orderCode');
-    assert.ok(qrOrder.vietqr.qrDataUrl.startsWith('data:image/png;base64,'));
 
-    // Ensure unpaid transfer was NOT printed prematurely
-    await new Promise((r) => setTimeout(r, 600));
-    const prematureFiles = fs
-      .readdirSync(receiptsDir)
-      .filter((f) => f.startsWith(qrOrder.orderCode));
-    assert.equal(prematureFiles.length, 0, 'Unpaid transfer must wait for payment confirmation before printing');
-
-    // Owner manually confirms payment
+    // Owner manually confirms payment (backup) -> immediately auto-accepted!
     const confirmRes = await fetch(`${SERVER_URL}/api/admin/orders/${qrOrder.id}/confirm-payment`, {
       method: 'POST',
       headers: { Cookie: cookieHeader },
@@ -333,20 +367,20 @@ async function run() {
     assert.equal(confirmRes.status, 200);
     const confirmData = await confirmRes.json();
     assert.equal(confirmData.printQueued, true);
+    assert.equal(confirmData.order.status, 'accepted', 'Confirmed order must be auto-accepted immediately');
 
     const qrReceiptFile = await waitFor(
       () => fs.readdirSync(receiptsDir).find((f) => f.startsWith(qrOrder.orderCode)),
       10000,
       150,
-      'Confirmed VietQR order printed'
+      'Manually confirmed VietQR order printed'
     );
     const qrReceiptTxt = fs.readFileSync(path.join(receiptsDir, qrReceiptFile), 'utf8');
     assert.ok(qrReceiptTxt.includes('CHUYỂN KHOẢN · ĐÃ NHẬN TIỀN'));
-    assert.ok(!qrReceiptTxt.includes('THU TIỀN MẶT'));
-    console.log(`✓ TEST 2 PASSED: VietQR ${qrOrder.orderCode} -> Awaiting Payment -> Manual Confirm -> Printed`);
+    console.log(`✓ TEST 2 PASSED: Backup manual confirm ${qrOrder.orderCode} -> Auto-accepted -> Printed`);
 
     // =========================================================================
-    // TEST 3: OFFLINE CATCH-UP + ZERO DUPLICATE PRINTING
+    // TEST 3: OFFLINE CATCH-UP + ZERO DUPLICATE PRINTING (SEPAY WHILE OFFLINE)
     // =========================================================================
     await killChild(agentProc);
     agentProc = null;
@@ -363,7 +397,7 @@ async function run() {
       'shop-agent offline'
     );
 
-    // Place COD order while Shop PC has no internet
+    // Place transfer order & pay via SePay while Shop PC has no internet
     const offRes = await fetch(`${SERVER_URL}/api/orders`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -371,13 +405,38 @@ async function run() {
         customerName: 'Lê Thu Hà',
         customerPhone: '0905111222',
         customerAddress: 'Đường Vườn Cam, Cao Bằng',
-        paymentMethod: 'cod',
+        paymentMethod: 'bank_transfer',
         items: [{ menuItemId: traVaiItem.id, quantity: 1 }],
       }),
     });
     assert.equal(offRes.status, 201);
     const offOrder = (await offRes.json()).order;
-    assert.equal(offOrder.printStatus, 'pending');
+
+    const offPayRes = await fetch(`${SERVER_URL}/api/webhooks/sepay`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Apikey ${SEPAY_SECRET}`,
+      },
+      body: JSON.stringify({
+        id: 987660,
+        accountNumber: '8800000000',
+        subAccount: '0000123456',
+        code: offOrder.vietqr.content,
+        transferType: 'in',
+        transferAmount: offOrder.totalAmount,
+        content: offOrder.vietqr.content,
+        referenceCode: 'FT261123OFF1',
+      }),
+    });
+    assert.equal(offPayRes.status, 200);
+
+    // Even while shop PC is offline, order MUST already be auto-accepted!
+    const offCheckRes = await fetch(
+      `${SERVER_URL}/api/orders/${offOrder.orderCode}?token=${encodeURIComponent(offOrder.publicToken)}`
+    );
+    const offCheckData = await offCheckRes.json();
+    assert.equal(offCheckData.status, 'accepted', 'Paid order must be auto-accepted even when shop PC is temporarily offline');
 
     // Bring Shop PC back online -> must catch up & print exactly ONCE
     agentProc = startAgent();
@@ -396,25 +455,24 @@ async function run() {
 
     const offFiles = fs.readdirSync(receiptsDir).filter((f) => f.startsWith(offOrder.orderCode));
     assert.equal(offFiles.length, 1, 'Offline catch-up order must be printed EXACTLY ONCE (no duplicates)');
-    console.log(`✓ TEST 3 PASSED: Offline order ${offOrder.orderCode} caught up after reconnect with ZERO duplicates`);
+    console.log(`✓ TEST 3 PASSED: Offline paid order ${offOrder.orderCode} auto-accepted immediately & caught up print with ZERO duplicates`);
 
     // =========================================================================
-    // TEST 4: REPRINT + OUT-OF-STOCK + PAUSE MODE + SEPAY WEBHOOK READY
+    // TEST 4: REPRINT + OUT-OF-STOCK + PAUSE MODE
     // =========================================================================
-    // Reprint COD order
-    const reprintRes = await fetch(`${SERVER_URL}/api/admin/orders/${codOrder.id}/reprint`, {
+    const reprintRes = await fetch(`${SERVER_URL}/api/admin/orders/${order1.id}/reprint`, {
       method: 'POST',
       headers: { Cookie: cookieHeader },
     });
     assert.equal(reprintRes.status, 200);
     await waitFor(
-      () => fs.readdirSync(receiptsDir).filter((f) => f.startsWith(codOrder.orderCode)).length === 2,
+      () => fs.readdirSync(receiptsDir).filter((f) => f.startsWith(order1.orderCode)).length === 2,
       8000,
       150,
       'reprint receipt created'
     );
-    const codFiles = fs.readdirSync(receiptsDir).filter((f) => f.startsWith(codOrder.orderCode)).sort();
-    const reprintedTxt = fs.readFileSync(path.join(receiptsDir, codFiles[1]), 'utf8');
+    const order1Files = fs.readdirSync(receiptsDir).filter((f) => f.startsWith(order1.orderCode)).sort();
+    const reprintedTxt = fs.readFileSync(path.join(receiptsDir, order1Files[1]), 'utf8');
     assert.ok(reprintedTxt.includes('BẢN IN LẠI'), 'Reprint ticket should say BẢN IN LẠI');
 
     // Out of stock toggle
@@ -430,12 +488,11 @@ async function run() {
         customerName: 'Test Sold Out',
         customerPhone: '0911222333',
         customerAddress: 'Cao Bằng',
-        paymentMethod: 'cod',
+        paymentMethod: 'bank_transfer',
         items: [{ menuItemId: hatDeItem.id, quantity: 1 }],
       }),
     });
     assert.equal(soldOutTry.status, 409, 'Ordering out-of-stock item must return 409');
-    // Re-enable
     await fetch(`${SERVER_URL}/api/admin/menu/${hatDeItem.id}/availability`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', Cookie: cookieHeader },
@@ -455,85 +512,43 @@ async function run() {
         customerName: 'Test Paused',
         customerPhone: '0911222333',
         customerAddress: 'Cao Bằng',
-        paymentMethod: 'cod',
+        paymentMethod: 'bank_transfer',
         items: [{ menuItemId: hatDeItem.id, quantity: 1 }],
       }),
     });
     assert.equal(pausedTry.status, 503, 'Ordering while paused must return 503');
-    // Unpause
     await fetch(`${SERVER_URL}/api/admin/settings/pause`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', Cookie: cookieHeader },
       body: JSON.stringify({ paused: false, message: '' }),
     });
 
-    // SePay webhook end-to-end check
-    const spOrderRes = await fetch(`${SERVER_URL}/api/orders`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        customerName: 'Phạm SePay',
-        customerPhone: '0911999888',
-        customerAddress: 'Phường Ngọc Xuân, Cao Bằng',
-        paymentMethod: 'bank_transfer',
-        items: [{ menuItemId: traVaiItem.id, quantity: 1 }],
-      }),
-    });
-    const spOrder = (await spOrderRes.json()).order;
-    const sepayHookRes = await fetch(`${SERVER_URL}/api/webhooks/sepay`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Apikey ${SEPAY_SECRET}`,
-      },
-      body: JSON.stringify({
-        id: 987654,
-        accountNumber: '8800000000',
-        subAccount: '0000123456',
-        code: spOrder.vietqr.content,
-        transferType: 'in',
-        transferAmount: spOrder.totalAmount,
-        content: `BIDV IBFT ${spOrder.vietqr.content} CHUYEN TIEN`,
-        referenceCode: 'FT2611220001',
-      }),
-    });
-    assert.equal(sepayHookRes.status, 200);
-    const sepayHookData = await sepayHookRes.json();
-    assert.equal(sepayHookData.success, true);
-    assert.equal(sepayHookData.printQueued, true);
-    await waitFor(
-      () => fs.readdirSync(receiptsDir).some((f) => f.startsWith(spOrder.orderCode)),
-      8000,
-      150,
-      'SePay-confirmed order printed'
-    );
-
-    console.log(`✓ TEST 4 PASSED: Reprint + Out-of-stock + Pause mode + SePay webhook (${spOrder.orderCode}) all verified!`);
+    console.log('✓ TEST 4 PASSED: Reprint + Out-of-stock + Pause mode all verified!');
 
     // =========================================================================
-    // TEST 5: SECURITY HARDENING VERIFICATION (v1.2.0)
+    // TEST 5: SECURITY HARDENING VERIFICATION (v1.3.0)
     // =========================================================================
     // 5a. Security headers & version
     const healthRes = await fetch(`${SERVER_URL}/api/health`);
     const healthJson = await healthRes.json();
-    assert.equal(healthJson.version, '1.2.0', 'Health endpoint should expose version 1.2.0');
+    assert.equal(healthJson.version, '1.3.0', 'Health endpoint should expose version 1.3.0');
     assert.equal(healthRes.headers.get('x-powered-by'), null, 'X-Powered-By must be disabled');
     assert.ok(healthRes.headers.get('content-security-policy'), 'CSP header must be present');
     assert.ok(healthRes.headers.get('permissions-policy'), 'Permissions-Policy header must be present');
     assert.equal(healthRes.headers.get('x-frame-options'), 'SAMEORIGIN');
 
     // 5b. Order IDOR closed (requires publicToken)
-    assert.ok(codOrder.publicToken && codOrder.publicToken.length >= 24, 'Order must have publicToken');
-    const idorNoTok = await fetch(`${SERVER_URL}/api/orders/${codOrder.orderCode}`);
+    assert.ok(order1.publicToken && order1.publicToken.length >= 24, 'Order must have publicToken');
+    const idorNoTok = await fetch(`${SERVER_URL}/api/orders/${order1.orderCode}`);
     assert.equal(idorNoTok.status, 404, 'GET /api/orders/:code without token must return 404');
-    const idorBadTok = await fetch(`${SERVER_URL}/api/orders/${codOrder.orderCode}?token=deadbeef`);
+    const idorBadTok = await fetch(`${SERVER_URL}/api/orders/${order1.orderCode}?token=deadbeef`);
     assert.equal(idorBadTok.status, 404, 'GET /api/orders/:code with wrong token must return 404');
     const idorGoodTok = await fetch(
-      `${SERVER_URL}/api/orders/${codOrder.orderCode}?token=${encodeURIComponent(codOrder.publicToken)}`
+      `${SERVER_URL}/api/orders/${order1.orderCode}?token=${encodeURIComponent(order1.publicToken)}`
     );
     assert.equal(idorGoodTok.status, 200, 'GET /api/orders/:code with valid token must return 200');
     const publicOrderView = await idorGoodTok.json();
-    assert.equal(publicOrderView.orderCode, codOrder.orderCode);
+    assert.equal(publicOrderView.orderCode, order1.orderCode);
     assert.equal(publicOrderView.customerPhone, undefined, 'Public order view must never expose phone');
 
     // 5c. WebSocket hardening: reject agent ?token=, reject customer missing/bad token, reject admin CSWSH
@@ -556,7 +571,7 @@ async function run() {
     assert.equal(await waitCloseCode(badAgentWs, 'badAgentWs'), 4001, 'Agent WS with ?token= query string must be rejected');
 
     const badCustWs = new WebSocket(
-      `ws://127.0.0.1:${PORT}/ws?role=customer&orderCode=${codOrder.orderCode}`
+      `ws://127.0.0.1:${PORT}/ws?role=customer&orderCode=${order1.orderCode}`
     );
     assert.equal(await waitCloseCode(badCustWs, 'badCustWs'), 4001, 'Customer WS without token must be rejected');
 
@@ -625,7 +640,7 @@ async function run() {
         transferType: 'in',
         transferAmount: spOrder2.totalAmount,
         content: spOrder2.vietqr.content,
-        referenceCode: 'FT2611220001', // Replaying spOrder's txRef!
+        referenceCode: 'FT2611220001', // Replaying order1's txRef!
       }),
     });
     const replayData = await replayRes.json();

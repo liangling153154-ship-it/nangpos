@@ -110,13 +110,38 @@ export async function notifyPaymentConfirmed(
   order: OrderDTO,
   source: 'manual' | 'sepay'
 ): Promise<NtfyResult> {
+  const itemsText = order.items
+    .map((it) => {
+      const opts: string[] = [];
+      if (it.variant) opts.push(it.variant);
+      if (it.sizeLabel && it.size === 'L') opts.push(it.sizeLabel);
+      if (it.ice) opts.push(it.ice);
+      if (it.sugar) opts.push(it.sugar);
+      if (it.toppings.length > 0) {
+        opts.push('+' + it.toppings.map((t) => t.name).join(', '));
+      }
+      const optStr = opts.length ? ` (${opts.join(' · ')})` : '';
+      return `• ${it.quantity}x ${it.name}${optStr}`;
+    })
+    .join('\n');
+
+  const lines = [
+    source === 'sepay'
+      ? 'ĐÃ NHẬN TIỀN (SePay) — TỰ ĐỘNG NHẬN ĐƠN & IN PHIẾU'
+      : 'ĐÃ XÁC NHẬN TIỀN — ĐÃ NHẬN ĐƠN & IN PHIẾU',
+    `Khách: ${order.customerName} — ${order.customerPhone}`,
+    `Địa chỉ: ${order.customerAddress}`,
+    itemsText,
+    `Tổng đồ uống: ${formatVnd(order.totalAmount)} (phí ship quán báo riêng)`,
+  ];
+  if (order.note) {
+    lines.push(`Ghi chú: ${order.note}`);
+  }
+
   return sendNtfyNotification({
-    title: `Đã nhận tiền ${order.orderCode} · ${formatVnd(order.totalAmount)}`,
-    message:
-      source === 'sepay'
-        ? `SePay tự động xác nhận đơn ${order.orderCode} (${order.customerName}). Phiếu đã đẩy xuống máy in quán.`
-        : `Đã xác nhận tiền đơn ${order.orderCode} (${order.customerName}). Phiếu đã đẩy xuống máy in quán.`,
-    priority: 3,
+    title: `Đơn mới (Đã CK) ${order.orderCode} · ${formatVnd(order.totalAmount)}`,
+    message: lines.join('\n'),
+    priority: 4,
     tags: ['white_check_mark', 'coffee'],
     clickUrl: `${config.publicUrl}/admin`,
   });

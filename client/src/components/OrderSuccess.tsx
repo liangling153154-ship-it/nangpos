@@ -101,7 +101,11 @@ export function OrderSuccess({ order: initialOrder, onClose }: OrderSuccessProps
               Mã đơn hàng của bạn
             </span>
             <div className="order-code-stamp">{order.orderCode}</div>
-            <p className="order-confirm-msg">Quán sẽ gọi lại xác nhận</p>
+            <p className="order-confirm-msg">
+              {isTransferWaiting
+                ? 'Quét mã VietQR bên dưới để hoàn tất đơn'
+                : 'Đã nhận tiền · Quán đã tự động nhận đơn!'}
+            </p>
             <div
               className={`order-status-pill ${
                 order.status === 'awaiting_payment'
@@ -123,7 +127,8 @@ export function OrderSuccess({ order: initialOrder, onClose }: OrderSuccessProps
                       Quét mã VietQR để chuyển khoản
                     </div>
                     <div style={{ fontSize: 13, color: 'var(--ink-muted)', marginTop: 2 }}>
-                      Giữ nguyên nội dung <strong>{order.vietqr?.content || order.orderCode}</strong> để quán xác nhận nhanh
+                      Giữ nguyên nội dung <strong>{order.vietqr?.content || order.orderCode}</strong>{' '}
+                      — hệ thống tự động xác nhận và nhận đơn ngay khi tiền về
                     </div>
                   </div>
 
@@ -217,20 +222,10 @@ export function OrderSuccess({ order: initialOrder, onClose }: OrderSuccessProps
                     textAlign: 'center',
                   }}
                 >
-                  Quán đã xác nhận nhận được tiền chuyển khoản! Đồ uống đang được pha chế.
+                  Hệ thống đã tự động xác nhận nhận tiền & nhận đơn! Đồ uống của bạn đang được pha
+                  chế.
                 </div>
               )}
-            </div>
-          )}
-
-          {order.paymentMethod === 'cod' && (
-            <div className="summary-box">
-              <div style={{ fontWeight: 700, color: 'var(--teal)' }}>
-                Thanh toán tiền mặt khi nhận hàng (COD)
-              </div>
-              <div style={{ fontSize: 13.5, color: 'var(--ink-secondary)' }}>
-                Đơn đã được chuyển thẳng tới máy pha chế tại quán. Quán sẽ gọi lại xác nhận và báo phí ship cụ thể.
-              </div>
             </div>
           )}
 

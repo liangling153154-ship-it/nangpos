@@ -46,9 +46,9 @@ async function run() {
   assert.equal(new PrintedJournal(tmpDir).has('initial:NC4242'), true);
   console.log('✓ PrintedJournal atomic duplicate-guard OK');
 
-  // 3. Receipt HTML & plain-text rendering (COD + Vietnamese diacritics)
+  // 3. Receipt HTML & plain-text rendering (Bank transfer paid + Vietnamese diacritics)
   const sample = {
-    orderCode: 'NC4242',
+    orderCode: 'NC.2311.001',
     createdAt: new Date().toISOString(),
     isReprint: false,
     customerName: 'Nguyễn Minh Anh',
@@ -73,17 +73,17 @@ async function run() {
       },
     ],
     totalAmount: 73000,
-    paymentMethod: 'cod',
-    paymentStatus: 'cod',
+    paymentMethod: 'bank_transfer',
+    paymentStatus: 'paid',
   };
 
   const html = buildReceiptHtml(sample, 80);
-  assert.ok(html.includes('NC4242'));
-  assert.ok(html.includes('THU TIỀN MẶT: 73.000đ'));
+  assert.ok(html.includes('NC.2311.001'));
+  assert.ok(html.includes('CHUYỂN KHOẢN · ĐÃ NHẬN TIỀN'));
   assert.ok(html.includes('Thạch đen Cao Bằng'));
   assert.ok(html.includes('Gọi trước khi giao'));
   const txt = buildReceiptPlainText(sample, 58);
-  assert.ok(txt.includes('THU TIỀN MẶT'));
+  assert.ok(txt.includes('CHUYỂN KHOẢN · ĐÃ NHẬN TIỀN'));
   console.log('✓ Thermal receipt HTML (80mm) & text (58mm) Vietnamese formatting OK');
 
   // 4. Verify 10-second audio assets exist and have expected size (~480KB for 10s 24kHz 16-bit mono PCM)

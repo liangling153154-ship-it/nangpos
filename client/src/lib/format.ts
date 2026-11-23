@@ -43,7 +43,7 @@ export function normalizeSearch(str: string): string {
 export function orderStatusLabel(status: OrderStatus): string {
   switch (status) {
     case 'awaiting_payment':
-      return 'Chờ xác nhận tiền';
+      return 'Chờ thanh toán';
     case 'pending_shop':
       return 'Chờ quán nhận';
     case 'accepted':

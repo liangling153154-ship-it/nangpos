@@ -194,10 +194,8 @@ function connect(): void {
           }
         }
       } else if (msg.type === 'agent:order_alert') {
-        // Announce incoming unpaid transfer order so staff knows to check bank app
         if (msg.paymentMethod === 'bank_transfer' && msg.status === 'awaiting_payment') {
-          console.log(`[Shop Agent] Incoming transfer order ${msg.orderCode} (chờ xác nhận tiền)`);
-          audio.announceNewOrder('transfer_alert');
+          console.log(`[Shop Agent] Order ${msg.orderCode} awaiting VietQR transfer (auto-accept on payment)`);
         }
       }
     } catch (err) {

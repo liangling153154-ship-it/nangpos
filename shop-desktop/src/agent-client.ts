@@ -171,15 +171,9 @@ export class DesktopAgentClient extends EventEmitter {
         } else if (msg.type === 'agent:order_alert') {
           if (msg.paymentMethod === 'bank_transfer' && msg.status === 'awaiting_payment') {
             this.pushLog(
-              'warn',
-              `Đơn chuyển khoản mới ${msg.orderCode} — đang chờ chủ quán xác nhận tiền.`
+              'info',
+              `Đơn ${msg.orderCode} đang chờ khách chuyển khoản VietQR (tự nhận đơn & in khi tiền về).`
             );
-            this.emit('alarm', {
-              kind: 'transfer_alert',
-              orderCode: msg.orderCode,
-              title: `Đơn chuyển khoản mới ${msg.orderCode}`,
-              body: 'Kiểm tra tiền về tài khoản BIDV rồi bấm "Xác nhận đã nhận tiền" để in phiếu.',
-            });
           }
         }
       } catch {
@@ -290,13 +284,13 @@ export class DesktopAgentClient extends EventEmitter {
 
           const cfg = this.getConfig();
 
-          // Trigger 10-second speaker alarm & desktop notification for new orders (skip alarm on manual reprint)
+          // Trigger 10-second speaker alarm & desktop notification for new paid orders (skip alarm on manual reprint)
           if (job.jobType !== 'reprint') {
             this.emit('alarm', {
               kind: 'new_order',
               orderCode: job.orderCode,
               title: `Đơn mới ${job.orderCode}`,
-              body: `${job.payload.customerName} · ${job.payload.paymentMethod === 'cod' ? 'THU TIỀN MẶT' : 'Đã chuyển khoản'} — Đang tự động in phiếu!`,
+              body: `${job.payload.customerName} · Đã chuyển khoản — Đã tự nhận đơn & đang in phiếu!`,
             });
           }
 
@@ -366,8 +360,8 @@ export class DesktopAgentClient extends EventEmitter {
           },
         ],
         totalAmount: 73000,
-        paymentMethod: 'cod',
-        paymentStatus: 'cod',
+        paymentMethod: 'bank_transfer',
+        paymentStatus: 'paid',
       },
       cfg,
       'local-test',

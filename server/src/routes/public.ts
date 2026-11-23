@@ -53,7 +53,11 @@ const createOrderSchema = z.object({
     .min(5, 'Vui lòng nhập địa chỉ giao hàng chi tiết hơn.')
     .max(250, 'Địa chỉ giao hàng quá dài.'),
   note: z.string().max(300).optional(),
-  paymentMethod: z.enum(['cod', 'bank_transfer']),
+  paymentMethod: z
+    .enum(['bank_transfer'], {
+      error: 'Quán chỉ áp dụng thanh toán chuyển khoản VietQR, không nhận tiền mặt (COD).',
+    })
+    .default('bank_transfer'),
   items: z
     .array(orderItemSchema)
     .min(1, 'Giỏ hàng đang trống. Vui lòng chọn ít nhất 1 món.')
@@ -122,7 +126,7 @@ publicRouter.post('/orders', async (req, res, next) => {
     const { order } = await createOrder(parsed.data);
     res.status(201).json({
       order,
-      message: 'Quán sẽ gọi lại xác nhận',
+      message: 'Quét mã VietQR — quán tự động nhận đơn ngay khi có tiền',
     });
   } catch (err) {
     if (err instanceof HttpError) {

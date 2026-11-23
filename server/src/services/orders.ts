@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { getDb, type DbClient } from '../db/index.js';
 import { config } from '../config.js';
 import { generateOrderVietQr } from './vietqr.js';
-import { notifyNewOrder, notifyPaymentConfirmed } from './ntfy.js';
+import { notifyPaymentConfirmed } from './ntfy.js';
 import { realtimeHub } from './ws.js';
 import type {
   DrinkType,
@@ -261,6 +261,13 @@ export async function createOrder(input: CreateOrderInput): Promise<{
   order: OrderDTO;
   printJob: PrintJobDTO | null;
 }> {
+  if (input.paymentMethod !== 'bank_transfer') {
+    throw new HttpError(
+      400,
+      'Quán chỉ áp dụng thanh toán chuyển khoản VietQR, không nhận tiền mặt (COD).'
+    );
+  }
+
   const db = getDb();
 
   // Check if shop is paused
@@ -380,10 +387,9 @@ export async function createOrder(input: CreateOrderInput): Promise<{
 
     const orderCode = await generateUniqueOrderCode(tx);
     const publicToken = crypto.randomBytes(16).toString('hex');
-    const isCod = input.paymentMethod === 'cod';
-    const initialStatus: OrderStatus = isCod ? 'pending_shop' : 'awaiting_payment';
-    const paymentStatus = isCod ? 'cod' : 'unpaid';
-    const shouldPrintNow = isCod || config.printUnpaidTransfer;
+    const initialStatus: OrderStatus = 'awaiting_payment';
+    const paymentStatus = 'unpaid';
+    const shouldPrintNow = config.printUnpaidTransfer;
 
     const orderRes = await tx.query(
       `INSERT INTO orders (
@@ -433,13 +439,11 @@ export async function createOrder(input: CreateOrderInput): Promise<{
     order.vietqr = await generateOrderVietQr(order.orderCode, order.totalAmount);
   }
 
-  // Push real-time notifications (WebSocket + ntfy)
+  // Push real-time update to Admin (shown quietly in "Chờ thanh toán" until transfer arrives)
   realtimeHub.notifyOrderCreated(order);
   if (printJob) {
     realtimeHub.pushPrintJobToAgents(printJob);
   }
-  // Fire ntfy asynchronously so a slow upstream never blocks the customer's checkout
-  notifyNewOrder(order).catch((err) => console.error('[ntfy] notifyNewOrder error:', err));
 
   return { order, printJob };
 }
@@ -533,8 +537,11 @@ export async function confirmOrderPayment(
       throw new HttpError(409, 'Đơn hàng này đã bị hủy.');
     }
 
+    // Auto-accept immediately once payment is confirmed (zero manual confirmation step)
     const nextStatus: OrderStatus =
-      existing.status === 'awaiting_payment' ? 'pending_shop' : existing.status;
+      existing.status === 'awaiting_payment' || existing.status === 'pending_shop'
+        ? 'accepted'
+        : existing.status;
     const nextPrintStatus =
       existing.printStatus === 'printed' ? 'printed' : 'pending';
 
@@ -583,11 +590,9 @@ export async function confirmOrderPayment(
     if (result.printJob) {
       realtimeHub.pushPrintJobToAgents(result.printJob);
     }
-    if (opts.source === 'sepay') {
-      notifyPaymentConfirmed(result.order, 'sepay').catch((err) =>
-        console.error('[ntfy] notifyPaymentConfirmed error:', err)
-      );
-    }
+    notifyPaymentConfirmed(result.order, opts.source).catch((err) =>
+      console.error('[ntfy] notifyPaymentConfirmed error:', err)
+    );
   }
 
   return result;
@@ -660,8 +665,8 @@ export async function queueTestPrint(): Promise<PrintJobDTO> {
       },
     ],
     totalAmount: 63000,
-    paymentMethod: 'cod',
-    paymentStatus: 'cod',
+    paymentMethod: 'bank_transfer',
+    paymentStatus: 'paid',
   };
 
   const jobRes = await db.query(

@@ -54,6 +54,8 @@ export function AdminPage() {
   const [tab, setTab] = useState<AdminTab>('orders');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [orders, setOrders] = useState<OrderDTO[]>([]);
+  const ordersRef = useRef<OrderDTO[]>([]);
+  ordersRef.current = orders;
   const [menu, setMenu] = useState<MenuResponse | null>(null);
   const [sysInfo, setSysInfo] = useState<AdminSystemInfo | null>(null);
   const [agents, setAgents] = useState<AgentPresence[]>([]);
@@ -130,13 +132,26 @@ export function AdminPage() {
               incoming,
               ...prev.filter((o) => o.id !== incoming.id),
             ]);
-            showToast(`Đơn mới ${incoming.orderCode} · ${formatVnd(incoming.totalAmount)}`);
-            if (soundEnabledRef.current) {
-              playAdminNewOrderSound();
-            }
+            showToast(`Đơn chờ thanh toán ${incoming.orderCode} · ${formatVnd(incoming.totalAmount)}`);
           } else if (msg.type === 'order:updated' && msg.order) {
             const updated = msg.order as OrderDTO;
-            setOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
+            const prevMatch = ordersRef.current.find((o) => o.id === updated.id);
+            const justPaid =
+              updated.paymentStatus === 'paid' && prevMatch?.paymentStatus !== 'paid';
+            setOrders((prev) => {
+              const exists = prev.some((o) => o.id === updated.id);
+              return exists
+                ? prev.map((o) => (o.id === updated.id ? updated : o))
+                : [updated, ...prev];
+            });
+            if (justPaid) {
+              showToast(
+                `Đã nhận tiền & tự nhận đơn ${updated.orderCode} · ${formatVnd(updated.totalAmount)}`
+              );
+              if (soundEnabledRef.current) {
+                playAdminNewOrderSound();
+              }
+            }
           } else if (msg.type === 'pause:updated' && msg.pause) {
             setMenu((prev) => (prev ? { ...prev, pause: msg.pause } : prev));
           } else if (msg.type === 'menu:updated') {
@@ -501,7 +516,7 @@ export function AdminPage() {
           >
             <span>Đơn hàng ({orders.length})</span>
             {awaitingPaymentCount > 0 && (
-              <span className="tab-badge">{awaitingPaymentCount} chờ tiền</span>
+              <span className="tab-badge">{awaitingPaymentCount} chờ CK</span>
             )}
           </button>
 
@@ -542,7 +557,7 @@ export function AdminPage() {
                   { key: 'all', label: `Tất cả (${orders.length})` },
                   {
                     key: 'awaiting_payment',
-                    label: `Chờ xác nhận tiền (${awaitingPaymentCount})`,
+                    label: `Chờ thanh toán (${awaitingPaymentCount})`,
                   },
                   {
                     key: 'active',

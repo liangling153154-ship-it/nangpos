@@ -1,9 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import type { OrderDTO, PaymentMethod, ShopPauseState } from '../../../shared/types';
+import type { OrderDTO, ShopPauseState } from '../../../shared/types';
 import { placeOrder } from '../lib/api';
 import { formatVnd } from '../lib/format';
 import type { CartEntry } from './DrinkSheet';
-import { CloseIcon, MinusIcon, PlusIcon } from './Icons';
+import { CheckIcon, CloseIcon, MinusIcon, PlusIcon } from './Icons';
 
 const CUSTOMER_INFO_KEY = 'nang_customer_profile_v1';
 
@@ -54,7 +54,6 @@ export function CartDrawer({
   const [customerPhone, setCustomerPhone] = useState(initial.phone);
   const [customerAddress, setCustomerAddress] = useState(initial.address);
   const [orderNote, setOrderNote] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('bank_transfer');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -108,7 +107,7 @@ export function CartDrawer({
         customerPhone: cleanPhone,
         customerAddress: cleanAddr,
         note: orderNote.trim(),
-        paymentMethod,
+        paymentMethod: 'bank_transfer',
         items: cart.map((entry) => ({
           menuItemId: entry.item.id,
           quantity: entry.quantity,
@@ -303,47 +302,36 @@ export function CartDrawer({
                 </div>
               </div>
 
-              {/* Payment method */}
+              {/* Payment method (Bank Transfer VietQR only) */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <div className="option-label" style={{ fontSize: 15 }}>
                   Phương thức thanh toán
                 </div>
-                <div className="payment-options">
-                  <label
-                    className={`payment-card ${paymentMethod === 'bank_transfer' ? 'payment-card--selected' : ''}`}
+                <div className="payment-card payment-card--selected" style={{ cursor: 'default' }}>
+                  <div
+                    style={{
+                      width: 22,
+                      height: 22,
+                      borderRadius: '50%',
+                      background: 'var(--teal)',
+                      color: '#fff',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flex: 'none',
+                      marginTop: 2,
+                    }}
+                    aria-hidden="true"
                   >
-                    <input
-                      type="radio"
-                      name="paymentMethod"
-                      className="payment-radio"
-                      checked={paymentMethod === 'bank_transfer'}
-                      onChange={() => setPaymentMethod('bank_transfer')}
-                    />
-                    <div>
-                      <div className="payment-title">Chuyển khoản VietQR (BIDV)</div>
-                      <div className="payment-desc">
-                        Hiện mã QR có sẵn số tiền và mã đơn. Quán xác nhận tiền sẽ làm đồ ngay.
-                      </div>
+                    <CheckIcon size={13} />
+                  </div>
+                  <div>
+                    <div className="payment-title">Chuyển khoản VietQR (BIDV) · Tự động nhận đơn</div>
+                    <div className="payment-desc">
+                      Quán chỉ áp dụng thanh toán chuyển khoản. Bấm đặt hàng để hiện mã QR có sẵn số
+                      tiền — tiền về hệ thống tự động xác nhận và làm đồ ngay.
                     </div>
-                  </label>
-
-                  <label
-                    className={`payment-card ${paymentMethod === 'cod' ? 'payment-card--selected' : ''}`}
-                  >
-                    <input
-                      type="radio"
-                      name="paymentMethod"
-                      className="payment-radio"
-                      checked={paymentMethod === 'cod'}
-                      onChange={() => setPaymentMethod('cod')}
-                    />
-                    <div>
-                      <div className="payment-title">Tiền mặt khi nhận hàng (COD)</div>
-                      <div className="payment-desc">
-                        Quán nhận đơn và làm đồ ngay, thanh toán tiền mặt khi shipper giao tới.
-                      </div>
-                    </div>
-                  </label>
+                  </div>
                 </div>
               </div>
 
@@ -385,7 +373,7 @@ export function CartDrawer({
                 'Đang gửi đơn...'
               ) : (
                 <>
-                  <span>Đặt hàng</span>
+                  <span>Đặt hàng & lấy mã QR</span>
                   <span className="tabular">· {formatVnd(subtotal)}</span>
                 </>
               )}
